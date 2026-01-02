@@ -4,7 +4,7 @@
 """
 
 import easyocr
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from pdf2image import convert_from_path
 # passporteye удален (потребляет много памяти)
 try:
@@ -83,6 +83,49 @@ class PassportParserEasyOCR:
         # Первый запуск скачает модели (~100MB)
         self.reader = easyocr.Reader(['en', 'ru'])
 
+    def preprocess_image_for_ocr(self, image_path: str) -> str:
+        """
+        Препроцессинг изображения для улучшения качества OCR:
+        - Upscaling (увеличение разрешения в 2x)
+        - Увеличение контраста
+        - Увеличение резкости
+        """
+        try:
+            img = Image.open(image_path)
+
+            # Конвертируем в RGB если нужно
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+
+            # 1. Upscaling - увеличиваем разрешение в 2 раза
+            width, height = img.size
+            img = img.resize((width * 2, height * 2), Image.LANCZOS)
+
+            # 2. Увеличение контраста (1.5x)
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.5)
+
+            # 3. Увеличение резкости (2.0x)
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(2.0)
+
+            # 4. Дополнительная резкость через фильтр
+            img = img.filter(ImageFilter.SHARPEN)
+
+            # Сохраняем во временный файл
+            preprocessed_path = image_path.rsplit('.', 1)[0] + '_preprocessed.jpg'
+            img.save(preprocessed_path, 'JPEG', quality=95)
+
+            if self.debug:
+                print(f"✨ Препроцессинг: {width}x{height} -> {width*2}x{height*2}, контраст +50%, резкость +100%")
+
+            return preprocessed_path
+
+        except Exception as e:
+            if self.debug:
+                print(f"⚠️ Ошибка препроцессинга: {e}")
+            return image_path  # Возвращаем оригинал при ошибке
+
     def validate_iin_checksum(self, iin: str) -> bool:
         """Проверка контрольной суммы ИИН"""
         if not iin or len(iin) != 12 or not iin.isdigit():
@@ -122,6 +165,7 @@ class PassportParserEasyOCR:
     def extract_text_easyocr(self, file_path: str) -> str:
         """Извлечение текста с EasyOCR с автоповоротом"""
         temp_file = None
+        preprocessed_file = None
         try:
             # Конвертируем PDF в изображение
             if file_path.lower().endswith('.pdf'):
@@ -143,8 +187,12 @@ class PassportParserEasyOCR:
                 file_path = temp_jpg
                 temp_file = temp_jpg
 
-            # EasyOCR на оригинальном изображении
-            result = self.reader.readtext(file_path)
+            # Применяем препроцессинг для улучшения качества OCR
+            preprocessed_path = self.preprocess_image_for_ocr(file_path)
+            preprocessed_file = preprocessed_path if preprocessed_path != file_path else None
+
+            # EasyOCR на обработанном изображении
+            result = self.reader.readtext(preprocessed_path)
 
             # Проверка качества распознавания
             valid_texts = [text for (bbox, text, confidence) in result if confidence > 0.3 and len(text) > 2]
@@ -159,11 +207,11 @@ class PassportParserEasyOCR:
                 best_rotation = 0
 
                 # Пробуем повороты
-                img = Image.open(file_path)
+                img = Image.open(preprocessed_path)
                 for rotation in [90, 180, 270]:
                     # Поворачиваем
                     rotated_img = img.rotate(rotation, expand=True)
-                    rotated_path = file_path.rsplit('.', 1)[0] + f'_rot{rotation}.jpg'
+                    rotated_path = preprocessed_path.rsplit('.', 1)[0] + f'_rot{rotation}.jpg'
                     rotated_img.save(rotated_path, 'JPEG', quality=95)
 
                     # Распознаем
@@ -185,9 +233,11 @@ class PassportParserEasyOCR:
                 if best_rotation > 0 and self.debug:
                     print(f"🔄 Использован поворот {best_rotation}°")
 
-            # Удаляем временный файл
+            # Удаляем временные файлы
             if temp_file and os.path.exists(temp_file):
                 os.remove(temp_file)
+            if preprocessed_file and os.path.exists(preprocessed_file):
+                os.remove(preprocessed_file)
 
             # Собираем текст
             text_lines = []
@@ -207,10 +257,15 @@ class PassportParserEasyOCR:
             return full_text
 
         except Exception as e:
-            # Очищаем временный файл при ошибке
+            # Очищаем временные файлы при ошибке
             if temp_file and os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
+                except:
+                    pass
+            if preprocessed_file and os.path.exists(preprocessed_file):
+                try:
+                    os.remove(preprocessed_file)
                 except:
                     pass
             if self.debug:
@@ -432,28 +487,41 @@ class PassportParserEasyOCR:
         # Формат MRZ: P<CCC<SURNAME_PARTS<<FIRSTNAME где CCC - код страны (3 буквы)
         # Фамилия может содержать несколько частей: AKHME<J<ANOV или с пробелами AKHME J ANOV
 
-        # Попытка 1: Полная MRZ строка с префиксом P<CCC (код страны отделен)
-        mrz_surname = re.search(r'P\s*<\s*[A-Z]{3}\s*<?\s*([A-Z\s<]+?)<<\s*([A-Z]+)', text)
+        # Попытка 1: Полная MRZ строка с префиксом P<CCC (код страны захватываем отдельно!)
+        # Имя может быть из нескольких слов: ([A-Z\s]+) вместо ([A-Z]+)
+        mrz_surname = re.search(r'P\s*<\s*([A-Z]{3})\s*<\s*([A-Z\s<]+?)<<\s*([A-Z\s]+)', text)
 
         # Попытка 2: MRZ без префикса (для случаев обрезанного текста)
+        # Также поддерживаем многословные имена
         if not mrz_surname:
-            mrz_surname = re.search(r'([A-Z]{4,})<[\s<]*([A-Z]{4,})', text)
+            mrz_surname = re.search(r'([A-Z]{4,})<[\s<]*([A-Z\s]{4,})', text)
 
         if mrz_surname:
-            surname_raw = mrz_surname.group(1)
-            firstname = mrz_surname.group(2)
+            # Определяем, какая попытка сработала
+            if len(mrz_surname.groups()) == 3:
+                # Попытка 1: есть код страны
+                country_code = mrz_surname.group(1)
+                surname_raw = mrz_surname.group(2)
+                firstname_raw = mrz_surname.group(3)
+            else:
+                # Попытка 2: нет кода страны
+                country_code = None
+                surname_raw = mrz_surname.group(1)
+                firstname_raw = mrz_surname.group(2)
 
             # Очищаем фамилию: удаляем < и пробелы полностью (AKHME J ANOV -> AKHMEJANOV)
             surname = re.sub(r'[<\s]+', '', surname_raw).strip()
 
-            # Удаляем код страны ТОЛЬКО если в тексте явно есть префикс P<KAZ или P <KAZ
-            # Это защищает от ложных срабатываний (фамилия KAZAKOV останется KAZAKOV)
-            if re.search(r'P\s*<\s*(UZB|KAZ|KGZ|TJK|TKM|RUS|BLR|ARM|GEO|AZE)', text):
-                country_codes = ['UZB', 'KAZ', 'KGZ', 'TJK', 'TKM', 'RUS', 'BLR', 'ARM', 'GEO', 'AZE']
-                for code in country_codes:
-                    if surname.startswith(code):
-                        surname = surname[len(code):]
-                        break
+            # Очищаем имя: удаляем лишние пробелы и < (JOHN  PAUL -> JOHN PAUL)
+            firstname = re.sub(r'<', ' ', firstname_raw).strip()
+            firstname = re.sub(r'\s+', ' ', firstname)  # Удаляем повторяющиеся пробелы
+
+            # Код страны УЖЕ отделен в группе 1, поэтому не нужно его удалять из surname
+            # Но на всякий случай проверяем
+            if country_code:
+                # Если код страны каким-то образом попал в фамилию, удаляем
+                if surname.startswith(country_code):
+                    surname = surname[len(country_code):]
 
             # Проверяем, что это не мусор
             if surname and firstname and surname not in EXCLUDE_WORDS and firstname not in EXCLUDE_WORDS:
@@ -461,12 +529,16 @@ class PassportParserEasyOCR:
                 data.first_name = firstname
 
         # Паттерн 2: Узбекские паспорта (FAMILIYASI/SURNAME, ISMI/GIVEN NAMES)
+        # Поддерживаем многословные имена: ([A-Z\s]+) вместо ([A-Z]+)
         if not data.last_name:
-            uzb_surname = re.search(r'(?:FAMILIYASI|SURNAME)[^\n]*\n\s*([A-Z]+)', text, re.IGNORECASE)
-            uzb_firstname = re.search(r'(?:ISMI|GIVEN NAMES)[^\n]*\n\s*([A-Z]+)', text, re.IGNORECASE)
+            uzb_surname = re.search(r'(?:FAMILIYASI|SURNAME)[^\n]*\n\s*([A-Z\s]+)', text, re.IGNORECASE)
+            uzb_firstname = re.search(r'(?:ISMI|GIVEN NAMES)[^\n]*\n\s*([A-Z\s]+)', text, re.IGNORECASE)
             if uzb_surname and uzb_firstname:
-                surname = uzb_surname.group(1)
-                firstname = uzb_firstname.group(1)
+                surname = uzb_surname.group(1).strip()
+                firstname = uzb_firstname.group(1).strip()
+                # Очищаем лишние пробелы
+                surname = re.sub(r'\s+', ' ', surname)
+                firstname = re.sub(r'\s+', ' ', firstname)
                 if surname not in EXCLUDE_WORDS and firstname not in EXCLUDE_WORDS:
                     data.last_name = surname
                     data.first_name = firstname
