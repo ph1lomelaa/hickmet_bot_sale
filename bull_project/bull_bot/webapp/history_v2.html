@@ -587,123 +587,23 @@
 <!-- Модалка редактирования -->
 <div class="modal" id="edit-modal">
     <div class="modal-content">
-        <h2 style="font-size: 20px; font-weight: 700; color: var(--accent-dark); margin-bottom: 20px;">✏️ Редактировать данные</h2>
+        <h2 style="font-size: 20px; font-weight: 700; color: var(--accent-dark); margin-bottom: 12px;">✏️ Редактировать данные</h2>
+        <p style="margin: 0 0 16px; color: var(--text-secondary); font-size: 14px;">
+            Можно менять только телефон, сумму оплаты и комментарий. Остальные поля остаются без изменений.
+        </p>
 
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Фамилия</label>
-                <input type="text" id="edit-last-name" class="search-input" style="width:100%;">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Имя</label>
-                <input type="text" id="edit-first-name" class="search-input" style="width:100%;">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Телефон</label>
-                <input type="tel" id="edit-phone" class="search-input" style="width:100%;" placeholder="+7 777 123 45 67">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Пол</label>
-                <select id="edit-gender" class="search-input" style="width:100%;">
-                    <option value="M">Мужской</option>
-                    <option value="F">Женский</option>
-                </select>
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Паспорт</label>
-                <input type="text" id="edit-passport" class="search-input" style="width:100%;" placeholder="N12345678">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Срок действия</label>
-                <input type="text" id="edit-passport-exp" class="search-input" style="width:100%;" placeholder="12.12.2028">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Дата рождения</label>
-                <input type="text" id="edit-dob" class="search-input" style="width:100%;" placeholder="01.01.1990">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">ИИН</label>
-                <input type="text" id="edit-iin" class="search-input" style="width:100%;" placeholder="ИИН">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Виза</label>
-                <input type="text" id="edit-visa" class="search-input" style="width:100%;" placeholder="UMRAH VISA">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Avia</label>
-                <input type="text" id="edit-avia" class="search-input" style="width:100%;" placeholder="-">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Питание</label>
-                <input type="text" id="edit-meal" class="search-input" style="width:100%;" placeholder="HB">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Город вылета</label>
-                <input type="text" id="edit-departure" class="search-input" style="width:100%;" placeholder="Almaty">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Регион</label>
-                <input type="text" id="edit-region" class="search-input" style="width:100%;" placeholder="-">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Поезд</label>
-                <input type="text" id="edit-train" class="search-input" style="width:100%;" placeholder="-">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Цена ($)</label>
-                <input type="text" id="edit-price" class="search-input" style="width:100%;" placeholder="1600">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Оплачено</label>
-                <input type="text" id="edit-amount-paid" class="search-input" style="width:100%;" placeholder="1500">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Курс</label>
-                <input type="text" id="edit-exchange" class="search-input" style="width:100%;" placeholder="495">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Скидка</label>
-                <input type="text" id="edit-discount" class="search-input" style="width:100%;" placeholder="-">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-bottom: 16px;">
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Менеджер</label>
-                <input type="text" id="edit-manager" class="search-input" style="width:100%;" placeholder="-">
-            </div>
-            <div style="flex:1;">
-                <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Источник</label>
-                <input type="text" id="edit-source" class="search-input" style="width:100%;" placeholder="-">
-            </div>
+        <div style="margin-bottom: 16px;">
+            <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">📞 Телефон</label>
+            <input type="tel" id="edit-phone" class="search-input" style="width:100%;" placeholder="+7 777 123 45 67">
         </div>
 
         <div style="margin-bottom: 16px;">
-            <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">Комментарий</label>
+            <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">💰 Сумма оплаты</label>
+            <input type="text" id="edit-amount-paid" class="search-input" style="width:100%;" placeholder="1500">
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--accent-brown);">💬 Комментарий</label>
             <textarea id="edit-comment" style="width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 12px; min-height: 90px; background: var(--bg-secondary);"></textarea>
         </div>
 
@@ -1258,13 +1158,8 @@
                 const passportPath = uploadJson.path;
                 const parsedData = uploadJson.parsed_data || {};
 
-                // Только сохраняем файл, НЕ перезаписываем паспортные данные
+                // Только сохраняем файл, НЕ трогаем таблицу и не проверяем строку/ФИО
                 const patchBody = {
-                    verify_name: true,
-                    sheet_row_number: booking.sheet_row_number,
-                    package_name: booking.package_name,
-                    sheet_name: booking.sheet_name,
-                    table_id: booking.table_id,
                     pilgrims: [{
                         passport_image_path: passportPath
                     }]
@@ -1331,27 +1226,9 @@
         editingBookingId = bookingId;
         editingBooking = booking;
 
-        // Заполняем поля
-        document.getElementById('edit-last-name').value = booking.guest_last_name || '';
-        document.getElementById('edit-first-name').value = booking.guest_first_name || '';
+        // Заполняем только существующие поля в модалке
         document.getElementById('edit-phone').value = booking.client_phone || '';
-        document.getElementById('edit-gender').value = booking.gender || 'M';
-        document.getElementById('edit-passport').value = booking.passport_num || '';
-        document.getElementById('edit-passport-exp').value = booking.passport_expiry || '';
-        document.getElementById('edit-dob').value = booking.date_of_birth || '';
-        document.getElementById('edit-iin').value = booking.guest_iin || '';
-        document.getElementById('edit-visa').value = booking.visa_status || '';
-        document.getElementById('edit-avia').value = booking.avia || '';
-        document.getElementById('edit-meal').value = booking.meal_type || '';
-        document.getElementById('edit-departure').value = booking.departure_city || '';
-        document.getElementById('edit-region').value = booking.region || '';
-        document.getElementById('edit-train').value = booking.train || '';
-        document.getElementById('edit-price').value = booking.price || '';
         document.getElementById('edit-amount-paid').value = booking.amount_paid || '';
-        document.getElementById('edit-exchange').value = booking.exchange_rate || '';
-        document.getElementById('edit-discount').value = booking.discount || '';
-        document.getElementById('edit-manager').value = booking.manager_name_text || booking.manager_name || '';
-        document.getElementById('edit-source').value = booking.source || '';
         document.getElementById('edit-comment').value = booking.comment || '';
 
         document.getElementById('edit-modal').classList.add('active');
@@ -1366,34 +1243,12 @@
     async function saveEditedData() {
         if (!editingBookingId || !editingBooking) return;
 
+        // Отправляем только разрешенные поля (телефон, сумма оплаты, комментарий)
         const body = {
-            verify_name: true,
-            sheet_row_number: editingBooking.sheet_row_number,
-            package_name: editingBooking.package_name,
-            sheet_name: editingBooking.sheet_name,
-            table_id: editingBooking.table_id,
             pilgrims: [{
-                last_name: document.getElementById('edit-last-name').value.trim(),
-                first_name: document.getElementById('edit-first-name').value.trim(),
-                phone: document.getElementById('edit-phone').value.trim(),
-                gender: document.getElementById('edit-gender').value,
-                passport_num: document.getElementById('edit-passport').value.trim(),
-                passport_expiry: document.getElementById('edit-passport-exp').value.trim(),
-                date_of_birth: document.getElementById('edit-dob').value.trim(),
-                iin: document.getElementById('edit-iin').value.trim()
+                phone: document.getElementById('edit-phone').value.trim()
             }],
-            visa_status: document.getElementById('edit-visa').value.trim(),
-            avia: document.getElementById('edit-avia').value.trim(),
-            meal_type: document.getElementById('edit-meal').value.trim(),
-            departure_city: document.getElementById('edit-departure').value.trim(),
-            region: document.getElementById('edit-region').value.trim(),
-            train: document.getElementById('edit-train').value.trim(),
-            price: document.getElementById('edit-price').value.trim(),
             amount_paid: document.getElementById('edit-amount-paid').value.trim(),
-            exchange_rate: document.getElementById('edit-exchange').value.trim(),
-            discount: document.getElementById('edit-discount').value.trim(),
-            manager_name_text: document.getElementById('edit-manager').value.trim(),
-            source: document.getElementById('edit-source').value.trim(),
             comment: document.getElementById('edit-comment').value.trim()
         };
 

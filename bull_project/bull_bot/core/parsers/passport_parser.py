@@ -6,6 +6,16 @@
 import easyocr
 from PIL import Image, ImageEnhance, ImageFilter
 from pdf2image import convert_from_path
+import numpy as np
+
+# OpenCV - опциональная зависимость для продвинутого препроцессинга
+try:
+    import cv2
+    HAS_OPENCV = True
+except ImportError:
+    HAS_OPENCV = False
+    cv2 = None
+
 # passporteye удален (потребляет много памяти)
 try:
     from passporteye import read_mrz
@@ -16,7 +26,7 @@ except ImportError:
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 import os
 
 
@@ -89,42 +99,91 @@ class PassportParserEasyOCR:
         - Upscaling (увеличение разрешения в 2x)
         - Увеличение контраста
         - Увеличение резкости
+        - OpenCV (если доступен): бинаризация, шумоподавление
         """
         try:
-            img = Image.open(image_path)
-
-            # Конвертируем в RGB если нужно
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-
-            # 1. Upscaling - увеличиваем разрешение в 2 раза
-            width, height = img.size
-            img = img.resize((width * 2, height * 2), Image.LANCZOS)
-
-            # 2. Увеличение контраста (1.5x)
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.5)
-
-            # 3. Увеличение резкости (2.0x)
-            enhancer = ImageEnhance.Sharpness(img)
-            img = enhancer.enhance(2.0)
-
-            # 4. Дополнительная резкость через фильтр
-            img = img.filter(ImageFilter.SHARPEN)
-
-            # Сохраняем во временный файл
-            preprocessed_path = image_path.rsplit('.', 1)[0] + '_preprocessed.jpg'
-            img.save(preprocessed_path, 'JPEG', quality=95)
-
-            if self.debug:
-                print(f"✨ Препроцессинг: {width}x{height} -> {width*2}x{height*2}, контраст +50%, резкость +100%")
-
-            return preprocessed_path
+            # Используем OpenCV если доступен (более мощный препроцессинг)
+            if HAS_OPENCV:
+                return self._preprocess_with_opencv(image_path)
+            else:
+                return self._preprocess_with_pil(image_path)
 
         except Exception as e:
             if self.debug:
                 print(f"⚠️ Ошибка препроцессинга: {e}")
             return image_path  # Возвращаем оригинал при ошибке
+
+    def _preprocess_with_opencv(self, image_path: str) -> str:
+        """Продвинутый препроцессинг с OpenCV"""
+        # Читаем изображение
+        img = cv2.imread(image_path)
+        if img is None:
+            return self._preprocess_with_pil(image_path)
+
+        height, width = img.shape[:2]
+
+        # 1. Upscaling - увеличиваем в 2 раза
+        img = cv2.resize(img, (width * 2, height * 2), interpolation=cv2.INTER_CUBIC)
+
+        # 2. Конвертируем в grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # 3. Шумоподавление (denoising)
+        denoised = cv2.fastNlMeansDenoising(gray, h=10)
+
+        # 4. Адаптивная бинаризация (улучшает контрастность текста)
+        binary = cv2.adaptiveThreshold(
+            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+
+        # 5. Морфологическая операция (убираем мелкие шумы)
+        kernel = np.ones((1, 1), np.uint8)
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+
+        # 6. Увеличение резкости
+        kernel_sharpen = np.array([[-1,-1,-1], [-1, 9,-1], [-1,-1,-1]])
+        sharpened = cv2.filter2D(cleaned, -1, kernel_sharpen)
+
+        # Сохраняем
+        preprocessed_path = image_path.rsplit('.', 1)[0] + '_preprocessed.jpg'
+        cv2.imwrite(preprocessed_path, sharpened, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+        if self.debug:
+            print(f"✨ OpenCV препроцессинг: {width}x{height} -> {width*2}x{height*2}, бинаризация, шумоподавление")
+
+        return preprocessed_path
+
+    def _preprocess_with_pil(self, image_path: str) -> str:
+        """Базовый препроцессинг с PIL (fallback)"""
+        img = Image.open(image_path)
+
+        # Конвертируем в RGB если нужно
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        # 1. Upscaling - увеличиваем разрешение в 2 раза
+        width, height = img.size
+        img = img.resize((width * 2, height * 2), Image.LANCZOS)
+
+        # 2. Увеличение контраста (1.5x)
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(1.5)
+
+        # 3. Увеличение резкости (2.0x)
+        enhancer = ImageEnhance.Sharpness(img)
+        img = enhancer.enhance(2.0)
+
+        # 4. Дополнительная резкость через фильтр
+        img = img.filter(ImageFilter.SHARPEN)
+
+        # Сохраняем во временный файл
+        preprocessed_path = image_path.rsplit('.', 1)[0] + '_preprocessed.jpg'
+        img.save(preprocessed_path, 'JPEG', quality=95)
+
+        if self.debug:
+            print(f"✨ PIL препроцессинг: {width}x{height} -> {width*2}x{height*2}, контраст +50%, резкость +100%")
+
+        return preprocessed_path
 
     def validate_iin_checksum(self, iin: str) -> bool:
         """Проверка контрольной суммы ИИН"""

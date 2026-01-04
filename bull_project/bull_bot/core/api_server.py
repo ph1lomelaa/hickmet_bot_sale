@@ -160,14 +160,14 @@ def make_abs_passport_path(path: Optional[str]) -> Optional[str]:
 # -----------------------------------------------------------------------------
 
 class PilgrimData(BaseModel):
-    first_name: str = "-"
-    last_name: str = "-"
-    phone: str = "-"
-    passport_num: str = "-"
-    date_of_birth: str = "-"
-    gender: str = "M"
-    passport_expiry: str = "-"
-    iin: str = "-"
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    passport_num: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    gender: Optional[str] = None
+    passport_expiry: Optional[str] = None
+    iin: Optional[str] = None
     passport_image_path: Optional[str] = None
 
 class BookingSubmitIn(BaseModel):
@@ -313,7 +313,7 @@ async def api_passport_parse(file: UploadFile = File(...)):
                 # Конвертируем PDF в PNG
                 print(f"🔄 Конвертация PDF в PNG...")
                 poppler_path = os.getenv("POPPLER_PATH", "/opt/homebrew/bin")
-                pages = convert_from_path(temp_path, dpi=300, poppler_path=poppler_path)
+                pages = convert_from_path(temp_path, dpi=500, poppler_path=poppler_path)
                 if pages:
                     pages[0].save(png_path, 'PNG')
                     print(f"✅ PDF сконвертирован: {png_path}")
@@ -767,6 +767,8 @@ async def api_passport_upload(file: UploadFile = File(...)):
             "ok": True,
             "path": target_path,
             "parsed_data": {
+                "first_name": passport_data.first_name or "",
+                "last_name": passport_data.last_name or "",
                 "gender": passport_data.gender or "",
                 "date_of_birth": passport_data.dob or "",
                 "passport_num": passport_data.document_number or "",
@@ -807,14 +809,23 @@ async def update_booking_endpoint(booking_id: int, payload: BookingUpdateIn):
         # Обновляем данные паломника если переданы
         if payload.pilgrims and len(payload.pilgrims) > 0:
             p = payload.pilgrims[0]  # Берем первого паломника
-            if p.last_name: update_fields['guest_last_name'] = p.last_name
-            if p.first_name: update_fields['guest_first_name'] = p.first_name
-            if p.gender: update_fields['gender'] = p.gender
-            if p.date_of_birth: update_fields['date_of_birth'] = p.date_of_birth
-            if p.passport_num: update_fields['passport_num'] = p.passport_num
-            if p.passport_expiry: update_fields['passport_expiry'] = p.passport_expiry
-            if p.iin: update_fields['guest_iin'] = p.iin
-            if p.phone: update_fields['client_phone'] = p.phone
+            # Проверяем что значение не None и не пустое перед обновлением
+            if p.last_name and p.last_name != "-":
+                update_fields['guest_last_name'] = p.last_name
+            if p.first_name and p.first_name != "-":
+                update_fields['guest_first_name'] = p.first_name
+            if p.gender and p.gender != "-":
+                update_fields['gender'] = p.gender
+            if p.date_of_birth and p.date_of_birth != "-":
+                update_fields['date_of_birth'] = p.date_of_birth
+            if p.passport_num and p.passport_num != "-":
+                update_fields['passport_num'] = p.passport_num
+            if p.passport_expiry and p.passport_expiry != "-":
+                update_fields['passport_expiry'] = p.passport_expiry
+            if p.iin and p.iin != "-":
+                update_fields['guest_iin'] = p.iin
+            if p.phone and p.phone != "-":
+                update_fields['client_phone'] = p.phone
 
             # Обновляем фото паспорта если передано
             if p.passport_image_path:
@@ -1936,6 +1947,142 @@ async def get_phones_by_package(
             status_code=500,
             content={"ok": False, "error": str(e)}
         )
+
+# ============= ADMIN TOOLS =============
+
+@app.get("/api/admin/download-all-passports")
+async def download_all_passports():
+    """
+    Скачать все паспорта из volume в виде ZIP архива
+    ВАЖНО: Используйте этот эндпоинт только для резервного копирования!
+    """
+    try:
+        import zipfile
+        import tempfile
+        from pathlib import Path
+
+        print(f"📦 Запрос на скачивание всех паспортов из {ABS_UPLOADS_DIR}")
+
+        # Проверяем что директория существует
+        if not os.path.exists(ABS_UPLOADS_DIR):
+            return JSONResponse(
+                status_code=404,
+                content={"ok": False, "error": f"Директория {ABS_UPLOADS_DIR} не найдена"}
+            )
+
+        # Получаем список всех файлов
+        all_files = []
+        for root, dirs, files in os.walk(ABS_UPLOADS_DIR):
+            for file in files:
+                # Пропускаем временные файлы
+                if file.endswith(('_preprocessed.jpg', '_temp.jpg', '_temp_ocr.jpg')):
+                    continue
+                full_path = os.path.join(root, file)
+                all_files.append(full_path)
+
+        if not all_files:
+            return JSONResponse(
+                status_code=404,
+                content={"ok": False, "error": "Паспортов не найдено"}
+            )
+
+        print(f"✅ Найдено {len(all_files)} файлов")
+
+        # Создаем временный ZIP файл
+        temp_zip = tempfile.NamedTemporaryFile(suffix='.zip', delete=False)
+        temp_zip_path = temp_zip.name
+        temp_zip.close()
+
+        # Упаковываем все файлы в ZIP
+        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in all_files:
+                # Получаем относительный путь для архива
+                arcname = os.path.relpath(file_path, ABS_UPLOADS_DIR)
+                zipf.write(file_path, arcname)
+                print(f"  ✅ Добавлен: {arcname}")
+
+        zip_size = os.path.getsize(temp_zip_path)
+        print(f"📦 ZIP архив создан: {zip_size / 1024 / 1024:.2f} MB")
+
+        # Возвращаем ZIP файл
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"passports_backup_{timestamp}.zip"
+
+        return FileResponse(
+            temp_zip_path,
+            media_type='application/zip',
+            filename=filename,
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            },
+            background=None  # Не удаляем файл автоматически, удалим вручную после отправки
+        )
+
+    except Exception as e:
+        print(f"❌ Ошибка создания архива: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": str(e)}
+        )
+
+
+@app.get("/api/admin/passports-stats")
+async def get_passports_stats():
+    """
+    Получить статистику по файлам паспортов
+    """
+    try:
+        if not os.path.exists(ABS_UPLOADS_DIR):
+            return {
+                "ok": True,
+                "total_files": 0,
+                "total_size_mb": 0,
+                "directory": ABS_UPLOADS_DIR,
+                "exists": False
+            }
+
+        # Подсчитываем файлы
+        total_files = 0
+        total_size = 0
+        file_types = {}
+
+        for root, dirs, files in os.walk(ABS_UPLOADS_DIR):
+            for file in files:
+                # Пропускаем временные файлы
+                if file.endswith(('_preprocessed.jpg', '_temp.jpg', '_temp_ocr.jpg')):
+                    continue
+
+                full_path = os.path.join(root, file)
+                file_size = os.path.getsize(full_path)
+
+                total_files += 1
+                total_size += file_size
+
+                # Группируем по расширениям
+                ext = os.path.splitext(file)[1].lower()
+                if ext not in file_types:
+                    file_types[ext] = {"count": 0, "size": 0}
+                file_types[ext]["count"] += 1
+                file_types[ext]["size"] += file_size
+
+        return {
+            "ok": True,
+            "total_files": total_files,
+            "total_size_mb": round(total_size / 1024 / 1024, 2),
+            "file_types": file_types,
+            "directory": ABS_UPLOADS_DIR,
+            "exists": True
+        }
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": str(e)}
+        )
+
 
 # ============= ДОБАВЬ ЭТО =============
 

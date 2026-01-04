@@ -469,10 +469,10 @@
     <!-- Фильтры по статусу -->
     <div class="status-filters" id="status-filters" style="display: none;">
         <div class="filter-tabs">
-            <button class="filter-tab active" onclick="filterByStatus('all')">Все</button>
-            <button class="filter-tab" onclick="filterByStatus('new')">Активные</button>
-            <button class="filter-tab" onclick="filterByStatus('cancelled')">Отмена</button>
-            <button class="filter-tab" onclick="filterByStatus('rescheduled')">Перенос</button>
+            <button class="filter-tab active" onclick="filterByStatus(event, 'all')">Все</button>
+            <button class="filter-tab" onclick="filterByStatus(event, 'new')">Активные</button>
+            <button class="filter-tab" onclick="filterByStatus(event, 'cancelled')">Отмена</button>
+            <button class="filter-tab" onclick="filterByStatus(event, 'rescheduled')">Перенос</button>
         </div>
     </div>
 
@@ -668,7 +668,7 @@
                             >
                             <button
                                 class="download-pdf-btn"
-                                onclick="downloadPassportPDF(${booking.id})"
+                                onclick="downloadPassportPDF(event, ${booking.id})"
                             >
                                 📄 Скачать PDF
                             </button>
@@ -687,9 +687,9 @@
                             ${groupLabel ? `<div class="booking-detail">Группа: <strong>${groupLabel}</strong></div>` : ''}
                         </div>
 
-                        <button class="details-btn" onclick="toggleDetails('details-${index}', this)">
-                            📋 Подробнее
-                        </button>
+                <button class="details-btn" onclick="toggleDetails(event, 'details-${index}', this)">
+                    📋 Подробнее
+                </button>
 
                         <div class="booking-details-full" id="details-${index}">
                             <div class="details-section">
@@ -755,19 +755,39 @@
         }
 
         // Скачивание паспорта в формате PDF
-        async function downloadPassportPDF(bookingId) {
+        async function downloadPassportPDF(evt, bookingId) {
+            // Не даем ссылке (если это кнопка в форме) перезагрузить страницу
+            evt?.preventDefault();
             try {
-                const button = event.target;
-                const originalText = button.innerHTML;
+                const button = evt?.target;
+                const originalText = button?.innerHTML;
 
                 // Показываем индикатор загрузки
-                button.innerHTML = '⏳ Создание PDF...';
-                button.disabled = true;
+                if (button) {
+                    button.innerHTML = '⏳ Создание PDF...';
+                    button.disabled = true;
+                }
 
                 console.log(`📥 Запрос PDF для booking ${bookingId}...`);
 
-                // Запрашиваем PDF с сервера
-                const response = await apiFetch(`${API_BASE}/api/care/passport-pdf/${bookingId}`);
+                const directUrl = `${API_BASE}/api/care/passport-pdf/${bookingId}?ngrok-skip-browser-warning=1`;
+
+                // Если внутри Telegram WebApp, скачивание через blob часто блокируется.
+                // Делаем прямое открытие ссылки (откроет в браузере и скачает файл).
+                if (window.Telegram?.WebApp) {
+                    window.Telegram.WebApp.openLink(directUrl);
+                    if (button) {
+                        button.innerHTML = '✅ PDF открыт';
+                        setTimeout(() => {
+                            button.innerHTML = originalText || '📄 Скачать PDF';
+                            button.disabled = false;
+                        }, 2000);
+                    }
+                    return;
+                }
+
+                // Обычный браузер: запрашиваем blob и скачиваем
+                const response = await apiFetch(directUrl);
 
                 console.log(`📨 Получен ответ: status=${response.status}, ok=${response.ok}`);
 
@@ -830,29 +850,34 @@
                 }, 150);
 
                 // Восстанавливаем кнопку
-                button.innerHTML = '✅ PDF скачан';
-                console.log('✅ PDF успешно скачан');
-
-                setTimeout(() => {
-                    button.innerHTML = originalText;
-                    button.disabled = false;
-                }, 2000);
+                if (button) {
+                    button.innerHTML = '✅ PDF скачан';
+                    console.log('✅ PDF успешно скачан');
+                    setTimeout(() => {
+                        button.innerHTML = originalText || '📄 Скачать PDF';
+                        button.disabled = false;
+                    }, 2000);
+                }
 
             } catch (error) {
                 console.error('❌ Ошибка скачивания PDF:', error);
-                const button = event.target;
-                button.innerHTML = '❌ Ошибка';
-                setTimeout(() => {
-                    button.innerHTML = '📄 Скачать PDF';
-                    button.disabled = false;
-                }, 2000);
+                const button = evt?.target;
+                if (button) {
+                    button.innerHTML = '❌ Ошибка';
+                    setTimeout(() => {
+                        button.innerHTML = '📄 Скачать PDF';
+                        button.disabled = false;
+                    }, 2000);
+                } else {
+                    alert('Ошибка скачивания PDF: ' + error.message);
+                }
             }
         }
 
-        function toggleDetails(detailId, btnElement) {
+        function toggleDetails(evt, detailId, btnElement) {
             const details = document.getElementById(detailId);
             if (!details) return;
-            const button = btnElement || event.currentTarget;
+            const button = btnElement || evt?.currentTarget;
             if (details.classList.contains('show')) {
                 details.classList.remove('show');
                 button.classList.remove('active');
