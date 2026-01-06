@@ -95,20 +95,45 @@ class PassportParserEasyOCR:
         # Первый запуск скачает модели (~100MB)
         self.reader = easyocr.Reader(['en', 'ru'])
 
+        # Более полный маппинг кириллицы в латиницу (покоcимый OCR)
+        self.cyr_to_lat_map = {
+            **{ord(c): l for c, l in {
+                "А": "A", "Б": "B", "В": "V", "Г": "G", "Д": "D",
+                "Е": "E", "Ё": "E", "Ж": "Z", "З": "Z", "И": "I", "Й": "Y",
+                "К": "K", "Л": "L", "М": "M", "Н": "N", "О": "O", "П": "P",
+                "Р": "R", "С": "S", "Т": "T", "У": "U", "Ф": "F", "Х": "H",
+                "Ц": "C", "Ч": "C", "Ш": "S", "Щ": "S", "Ы": "Y", "Э": "E",
+                "Ю": "U", "Я": "A", "Ь": "", "Ъ": "", "І": "I", "Ї": "I",
+            }.items()},
+            **{ord(c.lower()): l.lower() for c, l in {
+                "А": "A", "Б": "B", "В": "V", "Г": "G", "Д": "D",
+                "Е": "E", "Ё": "E", "Ж": "Z", "З": "Z", "И": "I", "Й": "Y",
+                "К": "K", "Л": "L", "М": "M", "Н": "N", "О": "O", "П": "P",
+                "Р": "R", "С": "S", "Т": "T", "У": "U", "Ф": "F", "Х": "H",
+                "Ц": "C", "Ч": "C", "Ш": "S", "Щ": "S", "Ы": "Y", "Э": "E",
+                "Ю": "U", "Я": "A", "Ь": "", "Ъ": "", "І": "I", "Ї": "I",
+            }.items()}
+        }
+
+    def normalize_text(self, text: str) -> str:
+        """
+        Переводит похожие кириллические буквы в латиницу и поднимает регистр.
+        Помогает, когда OCR смешивает алфавиты (например, KAZ/KAZA в русских буквах).
+        """
+        return text.translate(self.cyr_to_lat_map).upper()
+
     def preprocess_image_for_ocr(self, image_path: str) -> str:
         """
         Препроцессинг изображения для улучшения качества OCR:
         - Upscaling (увеличение разрешения в 2x)
         - Увеличение контраста
         - Увеличение резкости
-        - OpenCV (если доступен): бинаризация, шумоподавление
+        - PIL препроцессинг (более мягкий, лучше для MRZ)
         """
         try:
-            # Используем OpenCV если доступен (более мощный препроцессинг)
-            if HAS_OPENCV:
-                return self._preprocess_with_opencv(image_path)
-            else:
-                return self._preprocess_with_pil(image_path)
+            # Используем PIL препроцессинг (работает лучше для MRZ строк)
+            # OpenCV препроцессинг слишком агрессивный и может "съедать" тонкие MRZ символы
+            return self._preprocess_with_pil(image_path)
 
         except Exception as e:
             if self.debug:
@@ -130,28 +155,37 @@ class PassportParserEasyOCR:
         # 2. Конвертируем в grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # 3. Шумоподавление (denoising)
-        denoised = cv2.fastNlMeansDenoising(gray, h=10)
+        # 3. Легкое шумоподавление + CLAHE (без жесткой бинаризации)
+        denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(denoised)
 
-        # 4. Адаптивная бинаризация (улучшает контрастность текста)
-        binary = cv2.adaptiveThreshold(
-            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-        )
+        # 4. Deskew отключен (метод _deskew_binary не реализован)
+        # Если нужно добавить deskew, реализуйте метод _deskew_binary
+        # _, deskew_binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # deskewed, angle = self._deskew_binary(deskew_binary)
+        # if angle and self.debug:
+        #     print(f"  ↩️ Deskew применен: угол {angle:.2f}°")
+        # if angle:
+        #     (h, w) = enhanced.shape[:2]
+        #     center = (w // 2, h // 2)
+        #     M = cv2.getRotationMatrix2D(center, angle, 1.0)
+        #     enhanced = cv2.warpAffine(
+        #         enhanced, M, (w, h),
+        #         flags=cv2.INTER_CUBIC,
+        #         borderMode=cv2.BORDER_REPLICATE
+        #     )
 
-        # 5. Морфологическая операция (убираем мелкие шумы)
-        kernel = np.ones((1, 1), np.uint8)
-        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-
-        # 6. Увеличение резкости
+        # 5. Легкая резкость (без агрессивной бинаризации)
         kernel_sharpen = np.array([[-1,-1,-1], [-1, 9,-1], [-1,-1,-1]])
-        sharpened = cv2.filter2D(cleaned, -1, kernel_sharpen)
+        sharpened = cv2.filter2D(enhanced, -1, kernel_sharpen)
 
         # Сохраняем
         preprocessed_path = image_path.rsplit('.', 1)[0] + '_preprocessed.jpg'
         cv2.imwrite(preprocessed_path, sharpened, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
         if self.debug:
-            print(f"✨ OpenCV препроцессинг: {width}x{height} -> {width*2}x{height*2}, бинаризация, шумоподавление")
+            print(f"✨ OpenCV препроцессинг: {width}x{height} -> {width*2}x{height*2}, denoise+CLAHE, лёгкая резкость")
 
         return preprocessed_path
 
@@ -354,6 +388,10 @@ class PassportParserEasyOCR:
 
     def extract_mrz_passporteye(self, file_path: str) -> Optional[dict]:
         """Извлечение MRZ с PassportEye"""
+        if not HAS_PASSPORTEYE or read_mrz is None:
+            if self.debug:
+                print("⚠️ PassportEye недоступен (нет зависимости).")
+            return None
         try:
             if file_path.lower().endswith('.pdf'):
                 pages = convert_from_path(file_path, dpi=300, poppler_path=self.poppler_path)
@@ -570,14 +608,17 @@ class PassportParserEasyOCR:
         # Определяем тип документа
         data.document_type = self.detect_document_type(text)
 
-        # ИИН (12 цифр)
-        iin_match = re.search(r'\b(\d{12})\b', text)
+        # ИИН / ПИНФЛ (12-14 цифр)
+        iin_match = re.search(r'\b(\d{12,14})\b', text)
         if iin_match:
             iin = iin_match.group(1)
-            if self.validate_iin_checksum(iin):
+            # Проверяем контрольную сумму только для 12-значных ИИН
+            if len(iin) == 12 and self.validate_iin_checksum(iin):
                 data.iin = iin
                 data.gender = self.get_gender_from_iin(iin)
                 data.dob = self.extract_date_from_iin(iin)
+            else:
+                data.iin = iin  # сохраняем даже без checksum (для 13-14 цифр)
 
         # Номер документа - ищем N и цифры, или буквы+цифры (узбекские паспорта FA1415473)
         doc_patterns = [
@@ -605,7 +646,8 @@ class PassportParserEasyOCR:
             'GIVENNAMES', 'DATE', 'BIRTH', 'PLACE', 'ISSUE', 'EXPIRY',
             'AUTHORITY', 'MINISTRY', 'INTERNAL', 'AFFAIRS', 'KAZAKHSTAN',
             'КАЗАХСТАН', 'ПАСПОРТ', 'DATEOFBIRTH', 'PLACEOFBIRTH',
-            'DATEOFISSUE', 'DATEOFEXPIRY', 'AUHORIY', 'CODEOFSTATE'
+            'DATEOFISSUE', 'DATEOFEXPIRY', 'AUHORIY', 'CODEOFSTATE',
+            'FLACE', 'QFEFT', 'OF', 'PASPPORT'
         }
 
         # Коды стран, которые нужно удалить из фамилии (если приклеились из-за OCR)
@@ -621,86 +663,111 @@ class PassportParserEasyOCR:
         # Формат MRZ: P<CCC<SURNAME_PARTS<<FIRSTNAME где CCC - код страны (3 буквы)
         # Фамилия может содержать несколько частей: AKHME<J<ANOV или с пробелами AKHME J ANOV
 
-        # Попытка 1: Полная MRZ строка с префиксом P<CCC (код страны захватываем отдельно!)
-        # Имя может быть из нескольких слов: ([A-Z\s]+) вместо ([A-Z]+)
-        mrz_surname = re.search(r'P\s*<\s*([A-Z]{3})\s*<\s*([A-Z\s<]+?)<<\s*([A-Z\s]+)', text)
+        # Правильный паттерн для MRZ: P<CCCSURNAME<<FIRSTNAME
+        # Формат: P< + код страны (3 буквы) + фамилия + << + имя
+        # Важно: между кодом страны и фамилией НЕТ символа <
+        # Поддерживаем пробелы после <<: "P<KAZMUKHAMBETKALIYEVA<< D INARA"
+        # Имя может содержать пробелы: захватываем всё до символов < или конца
+        mrz_surname = re.search(r'P<([A-Z]{3})([A-Z<]+?)<<\s*([A-Z\s]+?)(?:<|$)', text)
 
-        # Попытка 2: MRZ без префикса но с двойными <<, явно указывающими на разделение фамилии и имени
-        # Формат: SURNAME<<FIRSTNAME
+        # Если не нашли, пробуем упрощенный вариант (без P<, но с кодом страны)
+        # Пример: KAZAKHMOLDAYEVA<<ALTYNSHASH
         if not mrz_surname:
-            mrz_surname = re.search(r'([A-Z]{3,}[<\s]*[A-Z]*)\s*<<\s*([A-Z\s]+)', text)
-            if mrz_surname and self.debug:
-                print(f"📋 MRZ Попытка 2 (двойные <<): {mrz_surname.group(0)}")
+            mrz_surname = re.search(r'\b([A-Z]{3})([A-Z<]+?)<<([A-Z]+)', text)
 
-        # Попытка 3: Одинарный < между словами (менее надежно)
+        # Если не нашли, пробуем вариант без кода страны (просто SURNAME<<FIRSTNAME)
+        # Пример: AKHMOLDAYEVA<<ALTYNSHASH или с пробелами AKHMOLDAYEVA< <ALTYNSHASH
         if not mrz_surname:
-            mrz_surname = re.search(r'([A-Z]{4,})\s*<\s*([A-Z]{4,})', text)
-            if mrz_surname and self.debug:
-                print(f"📋 MRZ Попытка 3 (одинарный <): {mrz_surname.group(0)}")
+            # Поддерживаем разделитель << или < < (с пробелом)
+            mrz_surname = re.search(r'\b([A-Z]{4,})<\s*<\s*([A-Z]{3,})', text)
 
         if mrz_surname:
             # Определяем, какая попытка сработала
             if len(mrz_surname.groups()) == 3:
-                # Попытка 1: есть код страны
+                # Попытка 1 или 2: есть код страны (P<CCC<SURNAME<<FIRSTNAME или CCC<SURNAME<<FIRSTNAME)
                 country_code = mrz_surname.group(1)
                 surname_raw = mrz_surname.group(2)
                 firstname_raw = mrz_surname.group(3)
-            else:
-                # Попытка 2: нет кода страны
+            elif len(mrz_surname.groups()) == 2:
+                # Попытка 3: нет кода страны (SURNAME<<FIRSTNAME или SURNAME< <FIRSTNAME)
                 country_code = None
                 surname_raw = mrz_surname.group(1)
                 firstname_raw = mrz_surname.group(2)
-
-            # Очищаем фамилию: удаляем < и пробелы полностью (AKHME J ANOV -> AKHMEJANOV)
-            surname = re.sub(r'[<\s]+', '', surname_raw).strip()
-
-            # Очищаем имя: удаляем лишние пробелы и < (JOHN  PAUL -> JOHN PAUL)
-            firstname = re.sub(r'<', ' ', firstname_raw).strip()
-            firstname = re.sub(r'\s+', ' ', firstname)  # Удаляем повторяющиеся пробелы
-
-            # 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Удаляем коды стран из начала фамилии
-            # Проблема: OCR может слить "P<KAZ<AKHMETOV" в "KAZAKHMETOV"
-
-            # Случай 1: Явный код страны из regex (самый надежный)
-            if country_code:
-                if surname.startswith(country_code):
-                    surname = surname[len(country_code):]
-                    if self.debug:
-                        print(f"🔧 Удален явный код страны '{country_code}' из фамилии -> {surname}")
-
-            # Случай 2: Проверяем коды стран с умной эвристикой
-            # Удаляем код только если после него идет согласная (не гласная первой)
-            # Это предотвратит удаление из "KAZAKOV" (где KAZ - часть имени)
-            # но удалит из "KAZAKHMETOV" (где после KAZ идет A - но это явная ошибка OCR)
             else:
-                for code in COUNTRY_CODES:
-                    if surname.startswith(code) and len(surname) > len(code) + 4:
-                        # Проверяем первую букву после кода
-                        next_char = surname[len(code)]
-
-                        # Эвристика: типичные казахские фамилии начинаются с согласных
-                        # A, E, I, O, U - гласные (латиница)
-                        # Если после кода сразу идет заглавная согласная - скорее всего это склеенное имя
-                        consonants = 'BCDFGHJKLMNPQRSTVWXYZ'
-
-                        # Дополнительная проверка: код + первая буква не должны образовывать известное начало фамилии
-                        # Например: "KAZ" + "A" = "KAZA" - это может быть начало "KAZAKOV"
-                        potential_surname_starts = ['KAZA', 'UZBЕ', 'KGZA', 'RUSA']
-                        combined = (code + next_char).upper()
-
-                        if next_char in consonants and combined not in potential_surname_starts:
-                            old_surname = surname
-                            surname = surname[len(code):]
-                            if self.debug:
-                                print(f"🔧 Удален код '{code}' (после него согласная '{next_char}'): {old_surname} -> {surname}")
-                            break
-
-            # Проверяем, что это не мусор
-            if surname and firstname and surname not in EXCLUDE_WORDS and firstname not in EXCLUDE_WORDS:
-                data.last_name = surname
-                data.first_name = firstname
+                # Неожиданное количество групп - пропускаем MRZ
                 if self.debug:
-                    print(f"✅ MRZ: Фамилия='{surname}', Имя='{firstname}'")
+                    print(f"⚠️ MRZ: неожиданное количество групп ({len(mrz_surname.groups())}), пропускаем")
+                surname_raw = None
+                firstname_raw = None
+
+            # Обрабатываем только если удалось извлечь данные
+            if surname_raw and firstname_raw:
+                # Очищаем фамилию: удаляем < и пробелы полностью (AKHME J ANOV -> AKHMEJANOV)
+                surname = re.sub(r'[<\s]+', '', surname_raw).strip()
+
+                # Очищаем имя:
+                # 1. Заменяем < на пробелы (JOHN<PAUL -> JOHN PAUL)
+                # 2. Удаляем повторяющиеся пробелы
+                # 3. Оставляем только первое слово (имя без отчества), если остальное выглядит как мусор
+                firstname = re.sub(r'<', ' ', firstname_raw).strip()
+                firstname = re.sub(r'\s+', ' ', firstname)  # Удаляем повторяющиеся пробелы
+
+                # Если имя содержит несколько слов, проверяем качество
+                firstname_parts = firstname.split()
+                if len(firstname_parts) > 1:
+                    # Если второе слово короткое (1-2 символа) или содержит lowercase - вероятно это мусор
+                    main_name = firstname_parts[0]
+                    other_parts = firstname_parts[1:]
+                    # Оставляем дополнительные части только если они валидные (длина >= 3 и все uppercase)
+                    valid_parts = [main_name]
+                    for part in other_parts:
+                        if len(part) >= 3 and part.isupper() and part.isalpha():
+                            valid_parts.append(part)
+                    firstname = ' '.join(valid_parts)
+
+                # 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Удаляем коды стран из начала фамилии
+                # Проблема: OCR может слить "P<KAZ<AKHMETOV" в "KAZAKHMETOV"
+
+                # Случай 1: Явный код страны из regex (самый надежный)
+                if country_code:
+                    if surname.startswith(country_code):
+                        surname = surname[len(country_code):]
+                        if self.debug:
+                            print(f"🔧 Удален явный код страны '{country_code}' из фамилии -> {surname}")
+
+                # Случай 2: Проверяем коды стран с умной эвристикой
+                # Удаляем код только если после него идет согласная (не гласная первой)
+                # Это предотвратит удаление из "KAZAKOV" (где KAZ - часть имени)
+                # но удалит из "KAZAKHMETOV" (где после KAZ идет A - но это явная ошибка OCR)
+                else:
+                    for code in COUNTRY_CODES:
+                        if surname.startswith(code) and len(surname) > len(code) + 4:
+                            # Проверяем первую букву после кода
+                            next_char = surname[len(code)]
+
+                            # Эвристика: типичные казахские фамилии начинаются с согласных
+                            # A, E, I, O, U - гласные (латиница)
+                            # Если после кода сразу идет заглавная согласная - скорее всего это склеенное имя
+                            consonants = 'BCDFGHJKLMNPQRSTVWXYZ'
+
+                            # Дополнительная проверка: код + первая буква не должны образовывать известное начало фамилии
+                            # Например: "KAZ" + "A" = "KAZA" - это может быть начало "KAZAKOV"
+                            potential_surname_starts = ['KAZA', 'UZBЕ', 'KGZA', 'RUSA']
+                            combined = (code + next_char).upper()
+
+                            if next_char in consonants and combined not in potential_surname_starts:
+                                old_surname = surname
+                                surname = surname[len(code):]
+                                if self.debug:
+                                    print(f"🔧 Удален код '{code}' (после него согласная '{next_char}'): {old_surname} -> {surname}")
+                                break
+
+                # Проверяем, что это не мусор
+                if surname and firstname and surname not in EXCLUDE_WORDS and firstname not in EXCLUDE_WORDS:
+                    data.last_name = surname
+                    data.first_name = firstname
+                    if self.debug:
+                        print(f"✅ MRZ: Фамилия='{surname}', Имя='{firstname}'")
 
         # Паттерн 2: Узбекские паспорта (FAMILIYASI/SURNAME, ISMI/GIVEN NAMES)
         # Поддерживаем многословные имена: ([A-Z\s]+) вместо ([A-Z]+)
@@ -710,9 +777,15 @@ class PassportParserEasyOCR:
             if uzb_surname and uzb_firstname:
                 surname = uzb_surname.group(1).strip()
                 firstname = uzb_firstname.group(1).strip()
-                # Очищаем лишние пробелы
-                surname = re.sub(r'\s+', ' ', surname)
-                firstname = re.sub(r'\s+', ' ', firstname)
+
+                # Фильтруем служебные слова из имени/фамилии
+                # Разбиваем на слова и удаляем служебные
+                surname_words = [w for w in surname.split() if w not in EXCLUDE_WORDS and w not in COUNTRY_CODES]
+                firstname_words = [w for w in firstname.split() if w not in EXCLUDE_WORDS and w not in COUNTRY_CODES]
+
+                # Оставляем только первое слово для фамилии, первое слово для имени
+                surname = surname_words[0] if surname_words else surname.split()[0]
+                firstname = firstname_words[0] if firstname_words else firstname.split()[0]
 
                 # Удаляем коды стран если они попали в начало (на случай ошибок OCR)
                 for code in COUNTRY_CODES:
@@ -739,17 +812,33 @@ class PassportParserEasyOCR:
         # Паттерн 3: Обычный текст (последний приоритет)
         if not data.last_name:
             lines = text.split('\n')
-            for i, line in enumerate(lines):
-                # Ищем латинские заглавные слова (фамилия/имя обычно рядом)
-                latin_words = re.findall(r'\b([A-Z]{4,})\b', line)
-                # Фильтруем служебные слова И коды стран
-                latin_words = [w for w in latin_words if w not in EXCLUDE_WORDS and w not in COUNTRY_CODES]
-                if len(latin_words) >= 2:
-                    data.last_name = latin_words[0]
-                    data.first_name = latin_words[1]
+            # Сначала пробуем две соседние строки (фамилия / имя на разных строках)
+            for i in range(len(lines) - 1):
+                line1 = lines[i].upper()
+                line2 = lines[i + 1].upper()
+                w1 = re.findall(r'\b([A-Z]{3,})\b', line1)
+                w2 = re.findall(r'\b([A-Z]{3,})\b', line2)
+                w1 = [w for w in w1 if w not in EXCLUDE_WORDS and w not in COUNTRY_CODES]
+                w2 = [w for w in w2 if w not in EXCLUDE_WORDS and w not in COUNTRY_CODES]
+                if len(w1) >= 1 and len(w2) >= 1:
+                    data.last_name = w1[0]
+                    data.first_name = w2[0]
                     if self.debug:
-                        print(f"✅ Обычный текст: Фамилия='{data.last_name}', Имя='{data.first_name}'")
+                        print(f"✅ Обычный текст (2 строки): Фамилия='{data.last_name}', Имя='{data.first_name}'")
                     break
+
+            # Если не нашли — берем две латинские в одной строке
+            if not data.last_name:
+                for line in lines:
+                    line_up = line.upper()
+                    latin_words = re.findall(r'\b([A-Z]{3,})\b', line_up)
+                    latin_words = [w for w in latin_words if w not in EXCLUDE_WORDS and w not in COUNTRY_CODES]
+                    if len(latin_words) >= 2:
+                        data.last_name = latin_words[0]
+                        data.first_name = latin_words[1]
+                        if self.debug:
+                            print(f"✅ Обычный текст: Фамилия='{data.last_name}', Имя='{data.first_name}'")
+                        break
 
         # Дата рождения
         if not data.dob:
@@ -824,9 +913,10 @@ class PassportParserEasyOCR:
         mrz_data = None
 
         # 2. EasyOCR для текста
-        text = self.extract_text_easyocr(file_path)
+        raw_text = self.extract_text_easyocr(file_path)
+        text = self.normalize_text(raw_text)
 
-        # 3. Парсим текст
+        # 3. Парсим текст (уже нормализованный)
         data = self.parse_text_fields(text)
 
         # 4. Сохраняем оригинальные имена из EasyOCR (до применения MRZ)
