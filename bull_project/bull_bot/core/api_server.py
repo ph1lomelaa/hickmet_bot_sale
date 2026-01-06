@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import uvicorn
 from urllib.parse import unquote_plus
 from typing import Optional, List, Dict, Any
@@ -118,6 +118,53 @@ def normalize_sheet_and_package(raw_sheet_name: str, raw_package_name: str):
     if "[" in p_name and "]" in p_name:
         p_name = p_name.split("[")[0].strip()
     return s_name, p_name
+
+
+def check_passport_expiry(passport_expiry: str) -> Optional[str]:
+    """
+    Проверяет срок действия паспорта.
+    Если паспорт истекает в течение 6 месяцев - возвращает предупреждение.
+    Возвращает None если все в порядке.
+
+    Поддерживаемые форматы дат:
+    - DD.MM.YYYY
+    - YYYY-MM-DD
+    - DD/MM/YYYY
+    """
+    if not passport_expiry or passport_expiry.strip() in ("-", ""):
+        return None
+
+    try:
+        # Пробуем разные форматы
+        expiry_date = None
+        for fmt in ["%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"]:
+            try:
+                expiry_date = datetime.strptime(passport_expiry.strip(), fmt)
+                break
+            except ValueError:
+                continue
+
+        if not expiry_date:
+            print(f"⚠️ Не удалось распознать дату паспорта: {passport_expiry}")
+            return None
+
+        # Проверяем срок действия
+        now = datetime.now()
+        six_months_later = now + timedelta(days=180)  # примерно 6 месяцев
+
+        if expiry_date <= now:
+            days_expired = (now - expiry_date).days
+            return f"⚠️ ПАСПОРТ ПРОСРОЧЕН на {days_expired} дн."
+        elif expiry_date <= six_months_later:
+            days_left = (expiry_date - now).days
+            months_left = days_left // 30
+            return f"⚠️ Истекает через {months_left} мес. ({days_left} дн.)"
+
+        return None  # Всё в порядке
+
+    except Exception as e:
+        print(f"❌ Ошибка проверки срока паспорта: {e}")
+        return None
 
 
 def get_active_tables_for_care() -> Dict[str, str]:
@@ -484,19 +531,41 @@ async def api_bookings_submit(payload: BookingSubmitIn):
     for pilgrim in payload.pilgrims:
         full_name = f"{(pilgrim.last_name or '').strip()} {(pilgrim.first_name or '').strip()}".strip()
         group_members.append(full_name or "-")
+
+        # 🔥 Проверка срока действия паспорта
+        passport_warning = check_passport_expiry(pilgrim.passport_expiry)
+
+        if passport_warning:
+            print(f"⚠️ {full_name}: {passport_warning}")
+
         # Данные для Sheets
-        p_sheet_data = {
-            # Human Readable формат
-            "Last Name": pilgrim.last_name or "-",
-            "First Name": pilgrim.first_name or "-",
-            "Gender": pilgrim.gender or "M",
-            "Date of Birth": pilgrim.date_of_birth or "-",
-            "Document Number": pilgrim.passport_num or "-",
-            "Document Expiration": pilgrim.passport_expiry or "-",
-            "IIN": pilgrim.iin or "-",
-            "client_phone": pilgrim.phone or "-",
-            "phone": pilgrim.phone or "-"
-        }
+        # Если есть предупреждение о паспорте - НЕ записываем паспортные данные
+        if passport_warning:
+            p_sheet_data = {
+                # Записываем только имя и предупреждение (красным в Sheets это будет)
+                "Last Name": pilgrim.last_name or "-",
+                "First Name": pilgrim.first_name or "-",
+                "Gender": "-",
+                "Date of Birth": "-",
+                "Document Number": "-",
+                "Document Expiration": "-",
+                "IIN": "-",
+                "client_phone": pilgrim.phone or "-",
+                "phone": pilgrim.phone or "-"
+            }
+        else:
+            p_sheet_data = {
+                # Human Readable формат
+                "Last Name": pilgrim.last_name or "-",
+                "First Name": pilgrim.first_name or "-",
+                "Gender": pilgrim.gender or "M",
+                "Date of Birth": pilgrim.date_of_birth or "-",
+                "Document Number": pilgrim.passport_num or "-",
+                "Document Expiration": pilgrim.passport_expiry or "-",
+                "IIN": pilgrim.iin or "-",
+                "client_phone": pilgrim.phone or "-",
+                "phone": pilgrim.phone or "-"
+            }
         group_data_for_sheets.append(p_sheet_data)
 
         # Логирование данных для Sheets
@@ -540,6 +609,7 @@ async def api_bookings_submit(payload: BookingSubmitIn):
             "guest_iin": pilgrim.iin or "-",
             "client_phone": pilgrim.phone or "-",
             "passport_image_path": pilgrim.passport_image_path or None,
+            "passport_warning": passport_warning,  # 🔥 Сохраняем предупреждение
             "status": "new",
         }
         db_records.append(record_db)
@@ -879,6 +949,11 @@ async def update_booking_endpoint(booking_id: int, payload: BookingUpdateIn):
                 update_fields['passport_num'] = p.passport_num
             if p.passport_expiry and p.passport_expiry != "-":
                 update_fields['passport_expiry'] = p.passport_expiry
+                # 🔥 Проверяем срок действия паспорта при обновлении
+                passport_warning = check_passport_expiry(p.passport_expiry)
+                update_fields['passport_warning'] = passport_warning
+                if passport_warning:
+                    print(f"⚠️ Обновление брони #{booking_id}: {passport_warning}")
             if p.iin and p.iin != "-":
                 update_fields['guest_iin'] = p.iin
             if p.phone and p.phone != "-":
@@ -887,6 +962,12 @@ async def update_booking_endpoint(booking_id: int, payload: BookingUpdateIn):
             # Обновляем фото паспорта если передано
             if p.passport_image_path:
                 await update_booking_passport_path(booking_id, p.passport_image_path)
+                # 🔥 Проверяем существующий срок действия паспорта в БД
+                if booking.passport_expiry and booking.passport_expiry != "-":
+                    passport_warning = check_passport_expiry(booking.passport_expiry)
+                    update_fields['passport_warning'] = passport_warning
+                    if passport_warning:
+                        print(f"⚠️ При загрузке паспорта обнаружено: {passport_warning}")
 
         # Обновляем общие поля (пакет/дата/таблица не меняем PATCH'ем)
         if payload.departure_city: update_fields['departure_city'] = payload.departure_city

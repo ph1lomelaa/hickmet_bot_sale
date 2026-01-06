@@ -327,6 +327,24 @@
             margin-left: 4px;
         }
 
+        .passport-warning {
+            background: var(--danger-bg);
+            color: var(--danger-text);
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 2px solid var(--danger-text);
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-align: center;
+            animation: pulse-warning 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+
         .details-btn {
             width: 100%;
             padding: 12px;
@@ -880,6 +898,7 @@
         const departureCity = safeValue(booking.departure_city);
         const region = safeValue(booking.region);
         const source = safeValue(booking.source);
+        const passportWarning = booking.passport_warning;  // 🔥 Предупреждение о паспорте
 
         const cardIndex = filteredBookings.indexOf(booking);
 
@@ -892,11 +911,17 @@
 
                 ${passportImage ? `
                     <img
-                        src="${API_URL}/api/care/passport-photo/${booking.id}"
+                        src="${API_URL}/api/care/passport-photo/${booking.id}?t=${new Date().getTime()}"
                         alt="Паспорт"
                         class="passport-image"
                         onerror="this.style.display='none'"
                     >
+                ` : ''}
+
+                ${passportWarning ? `
+                    <div class="passport-warning">
+                        ${passportWarning}
+                    </div>
                 ` : ''}
 
                 <div class="booking-preview">

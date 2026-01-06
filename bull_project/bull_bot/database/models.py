@@ -73,6 +73,7 @@ class Booking(Base):
     manager_name_text = Column(String)
     placement_type = Column(String)
     passport_image_path = Column(String, nullable=True)
+    passport_warning = Column(String, nullable=True)  # Предупреждение о сроке паспорта
 
     status = Column(String, default="new") # new, cancelled
     created_at = Column(DateTime, default=datetime.now)

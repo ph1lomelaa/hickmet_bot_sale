@@ -228,6 +228,24 @@
             margin-left: 4px;
         }
 
+        .passport-warning {
+            background: var(--danger-bg);
+            color: var(--danger-text);
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 2px solid var(--danger-text);
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-align: center;
+            animation: pulse-warning 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+
         .passport-image {
             width: 100%;
             max-height: 300px;
@@ -432,7 +450,7 @@
                 console.log(`Booking ID: ${booking.id}, passport_image_path: ${booking.passport_image_path}`);
 
                 if (booking.passport_image_path) {
-                    const photoUrl = `${API_URL}/api/care/passport-photo/${booking.id}`;
+                    const photoUrl = `${API_URL}/api/care/passport-photo/${booking.id}?t=${new Date().getTime()}`;
                     console.log(`Загрузка паспорта с URL: ${photoUrl}`);
 
                     html += `
@@ -448,6 +466,15 @@
                     `;
                 } else {
                     console.log(`⚠️ У паломника ${booking.last_name} ${booking.first_name} нет паспорта в БД`);
+                }
+
+                // 🔥 Предупреждение о паспорте
+                if (booking.passport_warning) {
+                    html += `
+                        <div class="passport-warning">
+                            ${booking.passport_warning}
+                        </div>
+                    `;
                 }
 
                 // Краткий превью

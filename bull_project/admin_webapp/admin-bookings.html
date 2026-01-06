@@ -333,6 +333,24 @@
             margin-left: 4px;
         }
 
+        .passport-warning {
+            background: var(--danger-bg);
+            color: var(--danger-text);
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 2px solid var(--danger-text);
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-align: center;
+            animation: pulse-warning 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+
         .details-btn {
             width: 100%;
             padding: 12px;
@@ -648,6 +666,7 @@
                 const sheetRow = booking.sheet_row_number != null ? booking.sheet_row_number : '-';
 
                 const passportImage = booking.passport_image_path;
+                const passportWarning = booking.passport_warning;  // 🔥 Предупреждение о паспорте
 
                 let html = `
                     <div class="booking-card">
@@ -661,7 +680,7 @@
                     html += `
                         <div class="passport-container">
                             <img
-                                src="${API_BASE}/api/care/passport-photo/${booking.id}?ngrok-skip-browser-warning=1"
+                                src="${API_BASE}/api/care/passport-photo/${booking.id}?ngrok-skip-browser-warning=1&t=${new Date().getTime()}"
                                 alt="Паспорт"
                                 class="passport-image"
                                 onerror="this.style.display='none'"
@@ -672,6 +691,14 @@
                             >
                                 📄 Скачать PDF
                             </button>
+                        </div>
+                    `;
+                }
+
+                if (passportWarning) {
+                    html += `
+                        <div class="passport-warning">
+                            ${passportWarning}
                         </div>
                     `;
                 }
