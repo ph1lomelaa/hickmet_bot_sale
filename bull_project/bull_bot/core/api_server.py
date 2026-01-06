@@ -216,6 +216,7 @@ class PilgrimData(BaseModel):
     passport_expiry: Optional[str] = None
     iin: Optional[str] = None
     passport_image_path: Optional[str] = None
+    document_type: Optional[str] = "passport"  # "passport" или "id_card"
 
 class BookingSubmitIn(BaseModel):
     pilgrims: List[PilgrimData] = []
@@ -532,15 +533,38 @@ async def api_bookings_submit(payload: BookingSubmitIn):
         full_name = f"{(pilgrim.last_name or '').strip()} {(pilgrim.first_name or '').strip()}".strip()
         group_members.append(full_name or "-")
 
-        # 🔥 Проверка срока действия паспорта
-        passport_warning = check_passport_expiry(pilgrim.passport_expiry)
+        # 🔥 Проверка типа документа
+        document_type = pilgrim.document_type or "passport"
+        is_id_card = (document_type == "id_card")
 
-        if passport_warning:
-            print(f"⚠️ {full_name}: {passport_warning}")
+        # 🔥 Проверка срока действия паспорта
+        passport_warning = None
+        if is_id_card:
+            # Если загружено удостоверение личности
+            passport_warning = "⚠️ Загружено удостоверение личности, требуется заграничный паспорт"
+            print(f"🆔 {full_name}: {passport_warning}")
+        else:
+            # Проверяем срок действия только для паспортов
+            passport_warning = check_passport_expiry(pilgrim.passport_expiry)
+            if passport_warning:
+                print(f"⚠️ {full_name}: {passport_warning}")
 
         # Данные для Sheets
-        # Если есть предупреждение о паспорте - НЕ записываем паспортные данные
-        if passport_warning:
+        if is_id_card:
+            # Для ID card записываем только: имя, фамилию, дату рождения, ИИН, пол
+            p_sheet_data = {
+                "Last Name": pilgrim.last_name or "-",
+                "First Name": pilgrim.first_name or "-",
+                "Gender": pilgrim.gender or "M",
+                "Date of Birth": pilgrim.date_of_birth or "-",
+                "Document Number": "-",  # НЕ записываем номер документа
+                "Document Expiration": "-",  # НЕ записываем срок действия
+                "IIN": pilgrim.iin or "-",
+                "client_phone": pilgrim.phone or "-",
+                "phone": pilgrim.phone or "-"
+            }
+        elif passport_warning:
+            # Если есть предупреждение о сроке паспорта - НЕ записываем паспортные данные
             p_sheet_data = {
                 # Записываем только имя и предупреждение (красным в Sheets это будет)
                 "Last Name": pilgrim.last_name or "-",
@@ -554,6 +578,7 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 "phone": pilgrim.phone or "-"
             }
         else:
+            # Обычный паспорт - записываем все данные
             p_sheet_data = {
                 # Human Readable формат
                 "Last Name": pilgrim.last_name or "-",
@@ -889,7 +914,8 @@ async def api_passport_upload(file: UploadFile = File(...)):
                 "date_of_birth": passport_data.dob or "",
                 "passport_num": passport_data.document_number or "",
                 "passport_expiry": passport_data.expiration_date or "",
-                "iin": passport_data.iin or ""
+                "iin": passport_data.iin or "",
+                "document_type": passport_data.document_type or "passport"
             }
 
         # ВАЖНО: Возвращаем относительный путь (только имя файла)
@@ -949,11 +975,14 @@ async def update_booking_endpoint(booking_id: int, payload: BookingUpdateIn):
                 update_fields['passport_num'] = p.passport_num
             if p.passport_expiry and p.passport_expiry != "-":
                 update_fields['passport_expiry'] = p.passport_expiry
-                # 🔥 Проверяем срок действия паспорта при обновлении
-                passport_warning = check_passport_expiry(p.passport_expiry)
-                update_fields['passport_warning'] = passport_warning
-                if passport_warning:
-                    print(f"⚠️ Обновление брони #{booking_id}: {passport_warning}")
+                # 🔥 Проверяем срок действия паспорта при обновлении (только для паспортов, не для ID card)
+                document_type = p.document_type or "passport"
+                is_id_card = (document_type == "id_card")
+                if not is_id_card:
+                    passport_warning = check_passport_expiry(p.passport_expiry)
+                    update_fields['passport_warning'] = passport_warning
+                    if passport_warning:
+                        print(f"⚠️ Обновление брони #{booking_id}: {passport_warning}")
             if p.iin and p.iin != "-":
                 update_fields['guest_iin'] = p.iin
             if p.phone and p.phone != "-":
@@ -962,12 +991,22 @@ async def update_booking_endpoint(booking_id: int, payload: BookingUpdateIn):
             # Обновляем фото паспорта если передано
             if p.passport_image_path:
                 await update_booking_passport_path(booking_id, p.passport_image_path)
-                # 🔥 Проверяем существующий срок действия паспорта в БД
-                if booking.passport_expiry and booking.passport_expiry != "-":
-                    passport_warning = check_passport_expiry(booking.passport_expiry)
-                    update_fields['passport_warning'] = passport_warning
-                    if passport_warning:
-                        print(f"⚠️ При загрузке паспорта обнаружено: {passport_warning}")
+
+                # 🔥 Проверяем тип документа
+                document_type = p.document_type or "passport"
+                is_id_card = (document_type == "id_card")
+
+                if is_id_card:
+                    # Если загружено удостоверение личности
+                    update_fields['passport_warning'] = "⚠️ Загружено удостоверение личности, требуется заграничный паспорт"
+                    print(f"🆔 При загрузке паспорта обнаружено удостоверение личности для брони #{booking_id}")
+                else:
+                    # 🔥 Проверяем существующий срок действия паспорта в БД
+                    if booking.passport_expiry and booking.passport_expiry != "-":
+                        passport_warning = check_passport_expiry(booking.passport_expiry)
+                        update_fields['passport_warning'] = passport_warning
+                        if passport_warning:
+                            print(f"⚠️ При загрузке паспорта обнаружено: {passport_warning}")
 
         # Обновляем общие поля (пакет/дата/таблица не меняем PATCH'ем)
         if payload.departure_city: update_fields['departure_city'] = payload.departure_city

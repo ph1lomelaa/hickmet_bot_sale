@@ -1183,10 +1183,11 @@
                 const passportPath = uploadJson.path;
                 const parsedData = uploadJson.parsed_data || uploadJson.data || {};
 
-                // Только сохраняем файл паспорта, остальные данные брони НЕ трогаем
+                // Только сохраняем файл паспорта и тип документа, остальные данные брони НЕ трогаем
                 const patchBody = {
                     pilgrims: [{
-                        passport_image_path: passportPath
+                        passport_image_path: passportPath,
+                        document_type: parsedData.document_type || "passport"
                     }]
                 };
 

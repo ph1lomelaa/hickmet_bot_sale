@@ -42,6 +42,7 @@ class PassportData:
     expiration_date: str = ""
     phone: str = ""
     nationality: str = ""
+    document_type: str = ""  # "passport" или "id_card"
 
     @property
     def full_name(self) -> str:
@@ -66,6 +67,7 @@ class PassportData:
             "phone": self.phone or "-",
             "nationality": self.nationality or "KAZ",
             "iin": self.iin or "-",
+            "document_type": self.document_type or "passport",
             # Дополнительные поля для совместимости с booking_handlers.py
             "Last Name": self.last_name or "-",
             "First Name": self.first_name or "-",
@@ -498,9 +500,56 @@ class PassportParserEasyOCR:
 
         return True
 
+    def detect_document_type(self, text: str) -> str:
+        """
+        Определение типа документа по ключевым словам
+        Возвращает: "passport" или "id_card"
+        """
+        text_upper = text.upper()
+
+        # Ключевые слова для удостоверения личности
+        id_card_keywords = [
+            'IDENTITY CARD',
+            'ЖЕКЕ КУӘЛІК',
+            'ЖЕКЕ КУӘЛIГI',
+            'ЖЕКЕ КУАЛIК',
+            'КУӘЛІК',
+            'КУАЛIК',
+            'IDENTITY',
+        ]
+
+        # Ключевые слова для паспорта
+        passport_keywords = [
+            'PASSPORT',
+            'ПАСПОРТ',
+            'ПАСПОРТА',
+        ]
+
+        # Проверяем на ID card
+        for keyword in id_card_keywords:
+            if keyword in text_upper:
+                if self.debug:
+                    print(f"🆔 Обнаружено удостоверение личности (ключевое слово: {keyword})")
+                return "id_card"
+
+        # Проверяем на паспорт
+        for keyword in passport_keywords:
+            if keyword in text_upper:
+                if self.debug:
+                    print(f"📘 Обнаружен паспорт (ключевое слово: {keyword})")
+                return "passport"
+
+        # По умолчанию считаем паспортом
+        if self.debug:
+            print(f"❓ Тип документа не определен, считаем паспортом")
+        return "passport"
+
     def parse_text_fields(self, text: str) -> PassportData:
         """Парсинг полей из текста"""
         data = PassportData()
+
+        # Определяем тип документа
+        data.document_type = self.detect_document_type(text)
 
         # ИИН (12 цифр)
         iin_match = re.search(r'\b(\d{12})\b', text)
