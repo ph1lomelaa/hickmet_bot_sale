@@ -66,6 +66,7 @@ class BookingFlow(StatesGroup):
 
     # Сбор паломников
     waiting_count = State()
+    choosing_fill_method = State()  # После количества: Telegram или форма
     waiting_passport = State()
     waiting_manual_name = State()
     choosing_gender = State()  # Выбор пола после текстового ввода
@@ -134,23 +135,111 @@ async def input_count(message: Message, state: FSMContext):
     if not message.text or not message.text.isdigit():
         await message.answer("❌ Введите число (например: 2).")
         return
-    await state.update_data(total_pilgrims=int(message.text), current_pilgrim=1, pilgrims_list=[])
+
+    total = int(message.text)
+    await state.update_data(total_pilgrims=total)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Заполнить в Telegram", callback_data="fill_method:tg")],
+        [InlineKeyboardButton(text="Заполнить в форме", callback_data="fill_method:form")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking")],
+    ])
+
     await message.answer(
+        f"✅ Паломников: <b>{total}</b>\n\n"
+        "Как будем заполнять?",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await state.set_state(BookingFlow.choosing_fill_method)
+
+
+@router.callback_query(BookingFlow.choosing_fill_method, F.data == "fill_method:tg")
+async def choose_fill_tg(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    total = int(data.get("total_pilgrims") or 0)
+    if total <= 0:
+        await call.message.answer("❌ Не нашла количество паломников. Начните заново.")
+        await state.clear()
+        return
+
+    await state.update_data(total_pilgrims=total, current_pilgrim=1, pilgrims_list=[])
+    await call.message.answer(
         "Отправьте паспорт 1-го паломника\n\n"
         "<i>Если нет паспорта, напишите текстом:\n"
         "ФАМИЛИЯ ИМЯ</i>",
         parse_mode="HTML"
     )
     await state.set_state(BookingFlow.waiting_passport)
+    with suppress(Exception):
+        await call.answer()
+
+
+@router.callback_query(BookingFlow.choosing_fill_method, F.data == "fill_method:form")
+async def choose_fill_form(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    total = int(data.get("total_pilgrims") or 0)
+    if total <= 0:
+        await call.message.answer("❌ Не нашла количество паломников. Начните заново.")
+        await state.clear()
+        return
+
+    url = get_webapp_url({"fill_mode": "form", "count": str(total)})
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Открыть форму", web_app=WebAppInfo(url=url))],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="create_booking")],
+    ])
+
+    await call.message.answer(
+        "Откройте форму и загрузите паспорта там 👇",
+        reply_markup=kb
+    )
+    await state.set_state(BookingFlow.waiting_web_app_data)
+    with suppress(Exception):
+        await call.answer()
+
+
+@router.callback_query(F.data == "cancel_booking")
+async def cancel_booking(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    user_id = call.from_user.id
+    role = await get_user_role(user_id)
+    await call.message.answer("❌ Отменено.\n\n<b>Выберите действие:</b>", reply_markup=get_menu_by_role(role), parse_mode="HTML")
+    with suppress(Exception):
+        await call.answer()
 
 # В функции process_passport (строка ~100)
 
 PARSER_ENGINE = os.getenv("PASSPORT_ENGINE", "tesseract").lower()
 
+# 🚀 ОПТИМИЗАЦИЯ: Глобальное кэширование парсера
+# EasyOCR загружает модели при инициализации (~10-15 секунд)
+# Кэшируем парсер чтобы избежать повторной загрузки при каждом запросе
+_CACHED_PARSER = None
+
 def create_passport_parser(debug=False, save_ocr=False):
+    """
+    Создает или возвращает закэшированный парсер паспортов
+
+    ВАЖНО: Для EasyOCR парсер кэшируется глобально, так как:
+    - Загрузка моделей занимает ~10-15 секунд
+    - Модели занимают ~200MB в памяти
+    - Парсер thread-safe и может использоваться повторно
+
+    Для Tesseract парсер легковесный, кэширование не критично
+    """
+    global _CACHED_PARSER
+
     if PARSER_ENGINE == "easyocr":
-        return PassportParserEasyOCR(POPPLER_PATH, debug=debug)
-    return PassportParser(POPPLER_PATH, debug=debug, save_ocr=save_ocr)
+        # EasyOCR: используем кэш
+        if _CACHED_PARSER is None:
+            print("🔧 Создаем и кэшируем EasyOCR парсер (первый запуск)...")
+            _CACHED_PARSER = PassportParserEasyOCR(POPPLER_PATH, debug=debug)
+            print("✅ EasyOCR парсер закэширован")
+        return _CACHED_PARSER
+    else:
+        # Tesseract: создаем каждый раз (легковесный)
+        return PassportParser(POPPLER_PATH, debug=debug, save_ocr=save_ocr)
 
 
 @router.message(BookingFlow.waiting_passport, F.document | F.photo)
