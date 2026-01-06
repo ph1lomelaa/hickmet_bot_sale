@@ -142,12 +142,16 @@ async def input_count(message: Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Заполнить в Telegram", callback_data="fill_method:tg")],
         [InlineKeyboardButton(text="Заполнить в форме", callback_data="fill_method:form")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking")],
     ])
 
     await message.answer(
         f"✅ Паломников: <b>{total}</b>\n\n"
-        "Как будем заполнять?",
+        "Как будем заполнять?\n\n"
+        "• <b>Telegram</b> — отправляете паспорта/имена по одному в чат.\n"
+        "• <b>Форма</b> — откроется WebApp: загрузите все паспорта разом и заполните там.\n\n"
+        "Подсказка для <b>Формы</b>:\n"
+        "• После загрузки паспортов нажмите «Начать обработку».\n"
+        "• Если у части паломников нет паспортов — их имя/фамилию вы введёте в форме вручную (количество менять не нужно).",
         parse_mode="HTML",
         reply_markup=kb
     )

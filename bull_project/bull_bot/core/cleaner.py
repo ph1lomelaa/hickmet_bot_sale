@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import select
 from bull_project.bull_bot.database.setup import async_session
 from bull_project.bull_bot.database.models import Booking
+from bull_project.bull_bot.core.passport_storage import resolve_passport_file_path
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,10 @@ async def clean_old_passports():
 
                 # 2. Если дата вылета прошла (вчера или раньше)
                 if flight_date < today:
-                    file_path = b.passport_image_path
+                    file_path = resolve_passport_file_path(b.passport_image_path)
 
                     # Удаляем физически
-                    if os.path.exists(file_path):
+                    if file_path and os.path.exists(file_path):
                         os.remove(file_path)
                         print(f"🗑 Удален файл: {file_path}")
 

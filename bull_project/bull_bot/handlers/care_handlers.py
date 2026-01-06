@@ -13,6 +13,7 @@ from bull_project.bull_bot.database.requests import (
     get_db_packages_list,
     get_booking_by_id
 )
+from bull_project.bull_bot.core.passport_storage import resolve_passport_file_path
 from bull_project.bull_bot.core.google_sheets.client import (
     get_accessible_tables, get_sheet_names
 )
@@ -112,12 +113,17 @@ async def show_tourist_card(message: Message, b):
         f"🚆 Поезд: {b.train}"
     )
 
-    bk = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 В меню", callback_data="care_menu")]])
+    passport_path = resolve_passport_file_path(getattr(b, "passport_image_path", None))
+    bk_rows = []
+    if passport_path:
+        bk_rows.append([InlineKeyboardButton(text="📎 Скачать паспорт", callback_data=f"care_passport:{b.id}")])
+    bk_rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="care_menu")])
+    bk = InlineKeyboardMarkup(inline_keyboard=bk_rows)
 
     # 🔥 ПРОВЕРКА ФОТО
-    if b.passport_image_path and os.path.exists(b.passport_image_path):
+    if passport_path:
         try:
-            photo = FSInputFile(b.passport_image_path)
+            photo = FSInputFile(passport_path)
             # Отправляем фото
             await message.answer_photo(photo, caption=text, reply_markup=bk, parse_mode="HTML")
             return
@@ -126,6 +132,29 @@ async def show_tourist_card(message: Message, b):
 
     # Фолбэк: Отправляем просто текст
     await message.answer(text, reply_markup=bk, parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("care_passport:"))
+async def care_send_passport(call: CallbackQuery):
+    bid = int(call.data.split(":")[1])
+    b = await get_booking_by_id(bid)
+    if not b:
+        await call.answer("Бронь не найдена", show_alert=True)
+        return
+
+    passport_path = resolve_passport_file_path(getattr(b, "passport_image_path", None))
+    if not passport_path:
+        await call.answer("Паспорт не найден", show_alert=True)
+        return
+
+    try:
+        await call.message.answer_document(FSInputFile(passport_path), caption="📎 Паспорт")
+    except Exception as e:
+        await call.answer(f"Ошибка отправки: {e}", show_alert=True)
+        return
+
+    with suppress(Exception):
+        await call.answer()
 
 # ==================== 📞 2. СБОР ТЕЛЕФОНОВ ====================
 

@@ -134,6 +134,39 @@
             flex: 1;
         }
         
+        .manager-control {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .manager-control select,
+        .manager-control input {
+            flex: 1;
+        }
+        
+        .name-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .name-row .name-input {
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .name-hint {
+            margin-top: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .gender-select {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        
         /* Стилизованные радио-кнопки */
         .city-buttons, .radio-group {
             display: flex;
@@ -450,6 +483,84 @@
             display: inline-block;
             margin-right: 6px;
         }
+
+        .start-box {
+            margin-top: 16px;
+        }
+
+        .choice-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .choice-row button {
+            flex: 1;
+        }
+
+        .sub-btn {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid var(--border-color);
+            border-radius: 14px;
+            background: var(--bg-card);
+            cursor: pointer;
+            font-weight: 700;
+            color: var(--accent-dark);
+            transition: all 0.2s ease;
+        }
+
+        .sub-btn:hover {
+            border-color: var(--accent-light);
+            transform: translateY(-1px);
+        }
+
+        .dropzone {
+            margin-top: 12px;
+            padding: 16px;
+            border: 2px dashed var(--border-color);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.6);
+            text-align: center;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .dropzone.dragover {
+            border-color: var(--accent-brown);
+            background: rgba(155, 132, 116, 0.08);
+            color: var(--accent-dark);
+        }
+
+        .file-list {
+            margin-top: 10px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--bg-card);
+            margin-top: 6px;
+        }
+
+        .file-status {
+            font-weight: 700;
+            color: var(--accent-dark);
+            white-space: nowrap;
+        }
+
+        .help-text {
+            margin-top: 10px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.35;
+        }
     </style>
 </head>
 <body>
@@ -459,6 +570,48 @@
 </div>
 <div id="edit_notice" class="edit-notice">
     ✏️ Режим редактирования: пакет и дата зафиксированы, можно менять только данные паломника.
+</div>
+
+<div id="step_0" style="display: none;">
+    <div class="smart-box start-box">
+        <h3>Создать бронь</h3>
+        <button class="submit-btn" id="create_booking_btn" type="button">Создать бронь</button>
+
+        <div id="create_flow" style="display: none; margin-top: 14px;">
+            <label>Количество паломников:</label>
+            <input type="number" id="pilgrims_count_input" min="1" max="30" placeholder="Например: 5">
+
+            <div class="choice-row">
+                <button class="sub-btn" id="fill_tg_btn" type="button">Заполнить в Telegram</button>
+                <button class="sub-btn" id="fill_form_btn" type="button">Заполнить в форме</button>
+            </div>
+
+            <div id="form_passport_block" style="display:none; margin-top: 14px;">
+                <label>Паспорта:</label>
+                <div class="choice-row">
+                    <button class="sub-btn" id="passports_all_btn" type="button">Все паспорта есть</button>
+                    <button class="sub-btn" id="passports_partial_btn" type="button">Частичные паспорта</button>
+                </div>
+
+                <div class="dropzone" id="passport_dropzone">
+                    Перетащите паспорта сюда (jpg/png/pdf) или нажмите «Выбрать файлы»
+                    <div style="margin-top:10px;">
+                        <button class="sub-btn" id="choose_files_btn" type="button">Выбрать файлы</button>
+                        <input type="file" id="passports_files_input" accept=".jpg,.jpeg,.png,.pdf" multiple style="display:none;">
+                    </div>
+                </div>
+
+                <div class="file-list" id="files_list"></div>
+
+                <button class="submit-btn" id="start_processing_btn" type="button" style="margin-top: 14px;" disabled>
+                    Начать обработку
+                </button>
+                <div class="help-text">
+                    После загрузки паспортов нажмите «Начать обработку». Если у части паломников нет паспортов — их имя/фамилию вы сможете ввести в форме вручную (количество менять не нужно).
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div id="step_1">
@@ -591,7 +744,11 @@
     </details>
 
     <label>Менеджер:</label>
-    <input type="text" id="manager_name_text" placeholder="Введите имя менеджера...">
+    <div class="manager-control">
+        <select id="manager_select"></select>
+        <input type="text" id="manager_custom_input" placeholder="Если нет в списке, укажите имя" style="display: none;">
+    </div>
+    <input type="hidden" id="manager_name_text">
     
     <label>Комментарий:</label>
     <textarea id="comment" rows="3" placeholder="Дополнительная информация..."></textarea>
@@ -655,9 +812,103 @@
 
     const API_URL = window.BULL_API_URL;
     let pilgrimsData = [];
-    let uploadedPassports = {}; // idx -> path
     let currentMode = 'create';
     let currentBookingId = null;
+
+    // Создание брони внутри WebApp (новая логика, старая не трогаем)
+    let creationMode = null; // 'tg' | 'form' | null
+    let creationCount = 0;
+    let passportsCompleteness = 'partial'; // 'all' | 'partial'
+    let passportFiles = [];
+    let processingInProgress = false;
+
+    const MANAGER_NAMES = [
+        'Ulzhan',
+        'Bayan',
+        'Perizat',
+        'Zhanerke',
+        'Nazerke',
+        'Bektay',
+        'Islam',
+        'Nursultan',
+        'Qymbat',
+        'BAGDAT',
+        'SHYNGYS',
+        'SAGYNDYK',
+        'ARSEN',
+        'KULYAN',
+        'MARZUHA',
+        'AIYM',
+        'AYAZHAN',
+        'Omirkhan',
+        'Olzhas',
+        'Zarina',
+        'Symbat',
+        'Akzhol',
+        'bekbergen',
+        'AKTOLKYN',
+        'Arsentai',
+        'Madi Turkestan',
+        'ADILET',
+        'Zhandos',
+        'Bakhyt',
+        'Sardar',
+        'Yerkezhan',
+        'MURAT'
+    ];
+
+    const managerSelect = document.getElementById('manager_select');
+    const managerCustomInput = document.getElementById('manager_custom_input');
+    const managerHiddenInput = document.getElementById('manager_name_text');
+
+    function renderManagerOptions() {
+        const options = ['<option value="">Выберите менеджера</option>',
+            ...MANAGER_NAMES.map(name => `<option value="${name}">${name}</option>`),
+            '<option value="other">(Другое)</option>'
+        ];
+        managerSelect.innerHTML = options.join('');
+    }
+
+    function syncManagerValue() {
+        if (managerSelect.value === 'other') {
+            managerCustomInput.style.display = 'block';
+            managerHiddenInput.value = managerCustomInput.value;
+            managerCustomInput.focus();
+        } else {
+            managerCustomInput.style.display = 'none';
+            managerCustomInput.value = '';
+            managerHiddenInput.value = managerSelect.value;
+        }
+    }
+
+    function setManagerName(name) {
+        if (!name) {
+            managerSelect.value = '';
+            syncManagerValue();
+            return;
+        }
+        if (MANAGER_NAMES.includes(name)) {
+            managerSelect.value = name;
+            syncManagerValue();
+        } else {
+            managerSelect.value = 'other';
+            managerCustomInput.style.display = 'block';
+            managerCustomInput.value = name;
+            managerHiddenInput.value = name;
+        }
+    }
+
+    managerSelect.addEventListener('change', () => {
+        syncManagerValue();
+    });
+
+    managerCustomInput.addEventListener('input', () => {
+        if (managerSelect.value === 'other') {
+            managerHiddenInput.value = managerCustomInput.value;
+        }
+    });
+
+    renderManagerOptions();
 
     // --- ПОИСК ПАКЕТОВ ---
     async function handleSearch() {
@@ -697,30 +948,11 @@
         document.getElementById('table_id_hidden').value = opt.dataset.table;
     };
 
-    async function uploadPassport(file) {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const res = await fetch(`${API_URL}/api/passports/upload`, {
-            method: "POST",
-            body: formData,
-            headers: {"ngrok-skip-browser-warning":"1"}
-        });
-        const json = await res.json();
-        if (!res.ok || !json.ok) {
-            throw (json.error || `Ошибка сервера ${res.status}`);
-        }
-
-        // Возвращаем весь объект с данными паспорта
-        return {
-            path: json.path,
-            data: json.data || {}
-        };
-    }
-
     // --- ПАРСИНГ ТУРИСТОВ ИЗ URL ---
     const urlParams = new URLSearchParams(window.location.search);
     const pRaw = urlParams.get('pilgrims');
+    const fillModeParam = (urlParams.get('fill_mode') || '').toLowerCase();
+    const countParam = parseInt((urlParams.get('count') || '').trim() || '0', 10);
     const modeParam = urlParams.get('mode');
     const editBookingId = urlParams.get('booking_id');
     const oldBookingId = urlParams.get('old_booking_id');
@@ -734,6 +966,155 @@
     currentMode = modeParam || localStorage.getItem('mode') || 'create';
     currentBookingId = editBookingId || localStorage.getItem('edit_booking_id') || null;
     let currentOldBookingId = oldBookingId || localStorage.getItem('old_booking_id') || null;
+
+    function showStep0() {
+        document.getElementById('step_0').style.display = 'block';
+        document.getElementById('step_1').style.display = 'none';
+        document.getElementById('step_2').style.display = 'none';
+        window.scrollTo(0, 0);
+    }
+
+    function showStep1() {
+        document.getElementById('step_0').style.display = 'none';
+        document.getElementById('step_1').style.display = 'block';
+        document.getElementById('step_2').style.display = 'none';
+        window.scrollTo(0, 0);
+    }
+
+    function fileSignature(file) {
+        return `${file.name}::${file.size}::${file.lastModified || 0}`;
+    }
+
+    function addFiles(files) {
+        const incoming = Array.from(files || []);
+        if (!incoming.length) return;
+
+        const existing = new Set(passportFiles.map(fileSignature));
+        for (const file of incoming) {
+            const sig = fileSignature(file);
+            if (existing.has(sig)) continue;
+            passportFiles.push(file);
+            existing.add(sig);
+        }
+
+        renderFilesList();
+        document.getElementById('start_processing_btn').disabled = passportFiles.length === 0 || processingInProgress;
+    }
+
+    function renderFilesList(statusMap = {}) {
+        const list = document.getElementById('files_list');
+        if (!list) return;
+        if (!passportFiles.length) {
+            list.innerHTML = '<div style="margin-top:8px;">Файлы не выбраны</div>';
+            return;
+        }
+        list.innerHTML = passportFiles.map((f, i) => {
+            const status = statusMap[i] || 'Готов';
+            return `<div class="file-item"><div>${i + 1}. ${f.name}</div><div class="file-status">${status}</div></div>`;
+        }).join('');
+    }
+
+    async function uploadPassportFile(file) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch(`${API_URL}/api/passports/upload`, {
+            method: "POST",
+            body: formData,
+            headers: {"ngrok-skip-browser-warning":"1"}
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.ok) throw new Error(json.error || `Ошибка сервера ${res.status}`);
+        return json;
+    }
+
+    function buildPilgrimFromParsed(parsed, filename) {
+        const data = parsed?.data || parsed?.parsed_data || {};
+        const firstName = data.first_name || "-";
+        const lastName = data.last_name || "-";
+        const gender = data.gender || "-";
+        const dob = data.date_of_birth || "-";
+        const passportNum = data.passport_num || "-";
+        const expiry = data.passport_expiry || "-";
+        const iin = data.iin || "-";
+        const passportPath = parsed?.path || null;
+        const displayName = `${lastName !== '-' ? lastName : ''} ${firstName !== '-' ? firstName : ''}`.trim() || '-';
+
+        return {
+            name: displayName,
+            last_name: lastName,
+            first_name: firstName,
+            phone: "-",
+            passport_num: passportNum,
+            date_of_birth: dob,
+            gender: gender,
+            passport_expiry: expiry,
+            iin: iin,
+            passport_image_path: passportPath,
+            _source_file: filename || ""
+        };
+    }
+
+    async function processAllPassportsAndCreatePilgrims() {
+        if (processingInProgress) return;
+        if (!creationCount || creationCount < 1) return alert("Укажите количество паломников");
+        if (!passportFiles.length) return alert("Выберите файлы паспортов");
+
+        processingInProgress = true;
+        const statusMap = {};
+        const btn = document.getElementById('start_processing_btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="icon">⏳</span> Обрабатываю...';
+
+        const results = [];
+        try {
+            for (let i = 0; i < passportFiles.length; i++) {
+                statusMap[i] = '⏳';
+                renderFilesList(statusMap);
+                try {
+                    const parsed = await uploadPassportFile(passportFiles[i]);
+                    results.push({ ok: true, file: passportFiles[i], parsed });
+                    statusMap[i] = parsed.parsed ? '✅' : '⚠️';
+                } catch (e) {
+                    results.push({ ok: false, file: passportFiles[i], error: String(e?.message || e) });
+                    statusMap[i] = '❌';
+                }
+                renderFilesList(statusMap);
+            }
+
+            const okResults = results.filter(r => r.ok).map(r => buildPilgrimFromParsed(r.parsed, r.file?.name));
+
+            if (passportsCompleteness === 'all' && okResults.length < creationCount) {
+                alert(`Обработано паспортов: ${okResults.length}/${creationCount}. Если паспорта частичные — выберите "Частичные паспорта".`);
+                return;
+            }
+
+            const pilgrims = okResults.slice(0, creationCount);
+            while (pilgrims.length < creationCount) {
+                pilgrims.push({
+                    name: '-',
+                    last_name: '-',
+                    first_name: '-',
+                    phone: '-',
+                    passport_num: '-',
+                    date_of_birth: '-',
+                    gender: '-',
+                    passport_expiry: '-',
+                    iin: '-',
+                    passport_image_path: null
+                });
+            }
+
+            pilgrimsData = pilgrims;
+            console.log("🧾 Сформированы паломники из паспортов:", pilgrimsData);
+            showStep1();
+            renderPilgrims();
+
+        } finally {
+            processingInProgress = false;
+            btn.disabled = false;
+            btn.innerHTML = 'Начать обработку';
+        }
+    }
 
     // Основной сценарий: данные приходят через URL (бот)
     if (pRaw) {
@@ -755,6 +1136,7 @@
             }));
 
             console.log("📋 Финальный pilgrimsData:", pilgrimsData);
+            showStep1();
             renderPilgrims();
         } catch(e) {
             console.error("❌ Ошибка парсинга данных:", e);
@@ -783,6 +1165,7 @@
                     passport_image_path: p.passport_image_path || null
                 }];
                 console.log("♻️ Загрузка переноса из localStorage:", pilgrimsData);
+                showStep1();
                 renderPilgrims();
             } catch (e) {
                 console.error("❌ Ошибка парсинга переноса:", e);
@@ -810,6 +1193,7 @@
                     passport_image_path: p.passport_image_path || null
                 }];
                 console.log("✏️ Загрузка редактирования из localStorage:", pilgrimsData);
+                showStep1();
                 renderPilgrims();
             } catch (e) {
                 console.error("❌ Ошибка парсинга редактирования:", e);
@@ -817,7 +1201,119 @@
             } finally {
                 // Не чистим edit-флаги сразу, чтобы можно было повторно открыть при возврате
             }
+        } else {
+            // Никаких входных данных нет — показываем новый сценарий создания внутри WebApp
+            showStep0();
         }
+    }
+
+    // Инициализация UI нового сценария (если показан step_0)
+    const createBtn = document.getElementById('create_booking_btn');
+    const createFlow = document.getElementById('create_flow');
+    const countInput = document.getElementById('pilgrims_count_input');
+    const fillTgBtn = document.getElementById('fill_tg_btn');
+    const fillFormBtn = document.getElementById('fill_form_btn');
+    const formPassportBlock = document.getElementById('form_passport_block');
+    const allBtn = document.getElementById('passports_all_btn');
+    const partialBtn = document.getElementById('passports_partial_btn');
+    const dropzone = document.getElementById('passport_dropzone');
+    const chooseFilesBtn = document.getElementById('choose_files_btn');
+    const filesInput = document.getElementById('passports_files_input');
+    const startProcessingBtn = document.getElementById('start_processing_btn');
+
+    if (createBtn) {
+        createBtn.addEventListener('click', () => {
+            createFlow.style.display = 'block';
+            createBtn.style.display = 'none';
+        });
+    }
+
+    function readCount() {
+        const v = parseInt((countInput?.value || '').trim(), 10);
+        if (!Number.isFinite(v) || v < 1) return 0;
+        return Math.min(30, v);
+    }
+
+    if (countInput) {
+        countInput.addEventListener('input', () => {
+            creationCount = readCount();
+        });
+    }
+
+    function setCompleteness(value) {
+        passportsCompleteness = value;
+        if (allBtn && partialBtn) {
+            allBtn.style.borderColor = value === 'all' ? 'var(--accent-brown)' : 'var(--border-color)';
+            partialBtn.style.borderColor = value === 'partial' ? 'var(--accent-brown)' : 'var(--border-color)';
+        }
+    }
+    setCompleteness('partial');
+
+    if (allBtn) allBtn.addEventListener('click', () => setCompleteness('all'));
+    if (partialBtn) partialBtn.addEventListener('click', () => setCompleteness('partial'));
+
+    if (fillTgBtn) {
+        fillTgBtn.addEventListener('click', () => {
+            creationCount = readCount();
+            if (!creationCount) return alert("Укажите количество паломников");
+            try {
+                tg.sendData(JSON.stringify({ action: "create_booking", fill_mode: "tg", count: creationCount }));
+            } catch (e) {
+                // no-op
+            }
+            tg.close();
+        });
+    }
+
+    if (fillFormBtn) {
+        fillFormBtn.addEventListener('click', () => {
+            creationCount = readCount();
+            if (!creationCount) return alert("Укажите количество паломников");
+            creationMode = 'form';
+            fillTgBtn.style.display = 'none';
+            fillFormBtn.style.display = 'none';
+            formPassportBlock.style.display = 'block';
+            renderFilesList();
+        });
+    }
+
+    if (chooseFilesBtn && filesInput) {
+        chooseFilesBtn.addEventListener('click', () => filesInput.click());
+        filesInput.addEventListener('change', (e) => {
+            addFiles(e.target.files);
+            e.target.value = '';
+        });
+    }
+
+    if (dropzone) {
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            addFiles(e.dataTransfer.files);
+        });
+    }
+
+    if (startProcessingBtn) {
+        startProcessingBtn.addEventListener('click', processAllPassportsAndCreatePilgrims);
+    }
+
+    // Если бот уже спросил количество и выбрали "Заполнить в форме" — сразу открываем нужный блок
+    if (!pRaw && fillModeParam === 'form' && Number.isFinite(countParam) && countParam > 0) {
+        showStep0();
+        createFlow.style.display = 'block';
+        createBtn.style.display = 'none';
+        countInput.value = String(Math.min(30, countParam));
+        creationCount = readCount();
+        creationMode = 'form';
+        fillTgBtn.style.display = 'none';
+        fillFormBtn.style.display = 'none';
+        formPassportBlock.style.display = 'block';
+        renderFilesList();
     }
 
     // Показываем предупреждение и фиксируем поля при редактировании
@@ -831,26 +1327,29 @@
 
     function renderPilgrims() {
         const container = document.getElementById('pilgrims-container');
-        const showUpload = currentMode !== 'edit'; // в режиме редактирования убираем загрузку/путь файла
         container.innerHTML = pilgrimsData.map((p, idx) => `
             <div class="tourist-card">
                 <div class="tourist-header">
-                    <span class="tourist-name">👤 ${p.name}</span>
+                    <span class="tourist-name" data-name-idx="${idx}">👤 ${p.last_name} ${p.first_name}</span>
                     <button onclick="togglePassportData(${idx})" class="passport-btn">
                         📋 Паспорт
                     </button>
                 </div>
+                <div class="name-row">
+                    <input type="text" class="name-input last-name-input" data-idx="${idx}" placeholder="Фамилия" value="${p.last_name !== '-' ? p.last_name : ''}">
+                    <input type="text" class="name-input first-name-input" data-idx="${idx}" placeholder="Имя" value="${p.first_name !== '-' ? p.first_name : ''}">
+                </div>
+                <div class="name-hint">Можно изменить имя/фамилию, если распознано неправильно</div>
                 <input type="tel" class="phone-input" data-idx="${idx}" placeholder="Номер телефона" value="${p.phone !== '-' ? p.phone : ''}">
-                ${showUpload ? `
-                    <div class="upload-wrapper">
-                        <label>Фото паспорта (jpg/png/pdf):</label>
-                        <input type="file" accept=".jpg,.jpeg,.png,.pdf" data-idx="${idx}" class="passport-file">
-                    </div>
-                ` : ''}
+                <select class="gender-select" data-idx="${idx}">
+                    <option value="" ${(!p.gender || p.gender === '-') ? 'selected' : ''}>Пол (обязательно) — выберите</option>
+                    <option value="M" ${p.gender === 'M' ? 'selected' : ''}>Мужской</option>
+                    <option value="F" ${p.gender === 'F' ? 'selected' : ''}>Женский</option>
+                </select>
 
                 <div id="passport_${idx}" class="passport-data">
-                    <div class="passport-field"><strong>Фамилия:</strong> <span>${p.last_name}</span></div>
-                    <div class="passport-field"><strong>Имя:</strong> <span>${p.first_name}</span></div>
+                    <div class="passport-field"><strong>Фамилия:</strong> <span class="passport-last-name">${p.last_name}</span></div>
+                    <div class="passport-field"><strong>Имя:</strong> <span class="passport-first-name">${p.first_name}</span></div>
                     <div class="passport-field"><strong>Пол:</strong> <span>${p.gender === 'M' ? '👨 Мужской' : '👩 Женский'}</span></div>
                     <div class="passport-field"><strong>Дата рождения:</strong> <span>${p.date_of_birth}</span></div>
                     <div class="passport-field"><strong>Паспорт:</strong> <span>${p.passport_num}</span></div>
@@ -860,71 +1359,58 @@
             </div>
         `).join('');
 
-        document.querySelectorAll('.phone-input').forEach(input => {
+        const nameInputs = document.querySelectorAll('.name-input');
+        const phoneInputs = document.querySelectorAll('.phone-input');
+        const genderSelects = document.querySelectorAll('.gender-select');
+
+        function updateNameDisplay(idx) {
+            const data = pilgrimsData[idx];
+            const header = document.querySelector(`[data-name-idx="${idx}"]`);
+            const displayName = `${data.last_name !== '-' ? data.last_name : ''} ${data.first_name !== '-' ? data.first_name : ''}`.trim();
+            if (header) {
+                header.textContent = `👤 ${displayName || '-'}`;
+            }
+            const lastSpan = document.querySelector(`#passport_${idx} .passport-last-name`);
+            const firstSpan = document.querySelector(`#passport_${idx} .passport-first-name`);
+            if (lastSpan) lastSpan.textContent = data.last_name;
+            if (firstSpan) firstSpan.textContent = data.first_name;
+            data.name = displayName || '-';
+
+            const genderSelect = document.querySelector(`.gender-select[data-idx="${idx}"]`);
+            if (genderSelect && (data.gender === 'M' || data.gender === 'F')) {
+                genderSelect.value = data.gender;
+            }
+        }
+
+        nameInputs.forEach(input => {
+            input.addEventListener('input', (e) => {
+                const idx = e.target.dataset.idx;
+                if (typeof pilgrimsData[idx] === 'undefined') return;
+                if (e.target.classList.contains('last-name-input')) {
+                    pilgrimsData[idx].last_name = e.target.value.trim() || '-';
+                } else {
+                    pilgrimsData[idx].first_name = e.target.value.trim() || '-';
+                }
+                updateNameDisplay(idx);
+            });
+        });
+
+        phoneInputs.forEach(input => {
             input.addEventListener('input', (e) => {
                 const idx = e.target.dataset.idx;
                 pilgrimsData[idx].phone = e.target.value;
             });
         });
-        document.querySelectorAll('.passport-file').forEach(input => {
-            input.addEventListener('change', async (e) => {
+
+        genderSelects.forEach(select => {
+            select.addEventListener('change', (e) => {
                 const idx = e.target.dataset.idx;
-                const file = e.target.files[0];
-                if (!file) return;
-
-                try {
-                    e.target.disabled = true;
-                    e.target.insertAdjacentHTML('afterend', '<div class="file-info">⏳ Загрузка и распознавание...</div>');
-
-                    const result = await uploadPassport(file);
-
-                    console.log("📄 Паспорт загружен:", result.path);
-                    console.log("📋 Распознанные данные:", result.data);
-
-                    // Обновляем путь к файлу
-                    pilgrimsData[idx].passport_image_path = result.path;
-
-                    // Обновляем распознанные данные (ВСЕ КРОМЕ имени и фамилии)
-                    if (result.data) {
-                        if (result.data.gender) {
-                            pilgrimsData[idx].gender = result.data.gender;
-                            console.log("✅ Пол обновлен:", result.data.gender);
-                        }
-                        if (result.data.date_of_birth) {
-                            pilgrimsData[idx].date_of_birth = result.data.date_of_birth;
-                            console.log("✅ Дата рождения обновлена:", result.data.date_of_birth);
-                        }
-                        if (result.data.passport_num) {
-                            pilgrimsData[idx].passport_num = result.data.passport_num;
-                            console.log("✅ Номер паспорта обновлен:", result.data.passport_num);
-                        }
-                        if (result.data.passport_expiry) {
-                            pilgrimsData[idx].passport_expiry = result.data.passport_expiry;
-                            console.log("✅ Срок действия обновлен:", result.data.passport_expiry);
-                        }
-                        if (result.data.iin) {
-                            pilgrimsData[idx].iin = result.data.iin;
-                            console.log("✅ ИИН обновлен:", result.data.iin);
-                        }
-                    }
-
-                    // Перерисовываем для отображения обновленных данных
-                    renderPilgrims();
-
-                    console.log("✅ Данные паломника обновлены из паспорта");
-                } catch (err) {
-                    alert("Ошибка загрузки файла: " + err);
-                    e.target.value = "";
-                    // Удаляем индикатор загрузки при ошибке
-                    const loadingInfo = e.target.nextElementSibling;
-                    if (loadingInfo && loadingInfo.classList.contains('file-info')) {
-                        loadingInfo.remove();
-                    }
-                }
+                if (typeof pilgrimsData[idx] === 'undefined') return;
+                pilgrimsData[idx].gender = e.target.value;
+                updateNameDisplay(idx);
             });
         });
     }
-
     function togglePassportData(idx) {
         const el = document.getElementById(`passport_${idx}`);
         el.classList.toggle('visible');
@@ -1031,7 +1517,7 @@
 
             // Менеджер и комментарий
             if (booking.manager_name_text) {
-                document.getElementById('manager_name_text').value = booking.manager_name_text;
+                setManagerName(booking.manager_name_text);
             }
 
             if (booking.comment && booking.comment !== '-') {
@@ -1133,6 +1619,16 @@
         if (method === 'pick') row = document.getElementById('room_select').value;
         if (method === 'manual') row = document.getElementById('manual_row_input').value;
 
+        for (let i = 0; i < pilgrimsData.length; i++) {
+            const p = pilgrimsData[i];
+            const hasName = (p.first_name && p.first_name !== '-') || (p.last_name && p.last_name !== '-');
+            const hasGender = p.gender === 'M' || p.gender === 'F';
+            if (hasName && !hasGender) {
+                alert(`Укажите пол для паломника #${i + 1}`);
+                return;
+            }
+        }
+
         const pilgrims = pilgrimsData.map(p => ({
             first_name: p.first_name,
             last_name: p.last_name,
@@ -1165,7 +1661,7 @@
             source: document.getElementById('source').value,
             region: document.getElementById('region').value,
             train: document.getElementById('train').value,
-            manager_name_text: document.getElementById('manager_name_text').value,
+            manager_name_text: managerHiddenInput.value,
             comment: document.getElementById('comment').value,
             placement_type: document.querySelector('input[name="placement_type"]:checked')?.value || 'separate',
             specific_row: row ? parseInt(row) : null,

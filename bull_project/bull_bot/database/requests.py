@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from .models import User, Booking, Request4U, AdminSettings, ApprovalRequest
 from .setup import async_session, engine
 
+from bull_project.bull_bot.core.passport_storage import normalize_passport_path_for_storage
+
  
 async def ensure_group_members_column():
     """
@@ -162,6 +164,9 @@ async def add_booking_to_db(data: dict, manager_id: int):
 
     try:
         async with async_session() as session:
+            if isinstance(data, dict) and 'passport_image_path' in data:
+                data = dict(data)
+                data['passport_image_path'] = normalize_passport_path_for_storage(data.get('passport_image_path'))
             # manager_id берется отдельно, остальные поля из словаря
             booking = Booking(manager_id=manager_id, **data)
             session.add(booking)
@@ -221,6 +226,8 @@ async def update_booking_fields(booking_id: int, fields: dict):
         if b:
             for key, value in fields.items():
                 if hasattr(b, key):
+                    if key == "passport_image_path":
+                        value = normalize_passport_path_for_storage(value)
                     setattr(b, key, value)
             await session.commit()
 
@@ -229,7 +236,7 @@ async def update_booking_passport_path(booking_id: int, passport_path: str):
     async with async_session() as session:
         b = await session.get(Booking, booking_id)
         if b:
-            b.passport_image_path = passport_path
+            b.passport_image_path = normalize_passport_path_for_storage(passport_path)
             await session.commit()
 
 # === ИСТОРИЯ И ПОИСК ===

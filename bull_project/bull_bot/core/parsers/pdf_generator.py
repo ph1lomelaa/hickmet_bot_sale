@@ -11,6 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.utils import ImageReader
 import easyocr
+from bull_project.bull_bot.core.passport_storage import resolve_passport_file_path
 
 
 class PassportPDFGenerator:
@@ -200,20 +201,22 @@ class PassportPDFGenerator:
             Путь к созданному PDF или None если ошибка
         """
         try:
+            resolved_passport_path = resolve_passport_file_path(passport_image_path) or passport_image_path
+
             # Если путь не указан, создаем рядом с оригиналом
             if output_pdf_path is None:
-                base_name = os.path.splitext(passport_image_path)[0]
+                base_name = os.path.splitext(resolved_passport_path)[0]
                 output_pdf_path = f"{base_name}_searchable.pdf"
 
             # Проверяем существование файла
-            if not os.path.exists(passport_image_path):
+            if not os.path.exists(resolved_passport_path):
                 if self.debug:
-                    print(f"❌ Файл не найден: {passport_image_path}")
+                    print(f"❌ Файл не найден: {resolved_passport_path}")
                 return None
 
             # Создаем PDF
             success = self.create_searchable_pdf(
-                passport_image_path,
+                resolved_passport_path,
                 output_pdf_path,
                 add_ocr_layer=True
             )
