@@ -166,6 +166,42 @@
             margin-top: 10px;
             font-size: 14px;
         }
+
+        /* Чекбоксы INF/CHD */
+        .passenger-type-checkboxes {
+            display: flex;
+            gap: 16px;
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 2px solid var(--border-color);
+        }
+
+        .passenger-type-checkboxes label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            text-transform: none;
+            letter-spacing: 0;
+            margin: 0;
+            padding: 0;
+        }
+
+        .passenger-type-checkboxes input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: var(--accent-brown);
+        }
+
+        .passenger-type-checkboxes label:hover {
+            color: var(--accent-dark);
+        }
         
         /* Стилизованные радио-кнопки */
         .city-buttons, .radio-group {
@@ -549,17 +585,40 @@
             margin-top: 6px;
         }
 
-        .file-status {
-            font-weight: 700;
-            color: var(--accent-dark);
-            white-space: nowrap;
-        }
+	        .file-status {
+	            font-weight: 700;
+	            color: var(--accent-dark);
+	            white-space: nowrap;
+	        }
 
-        .help-text {
-            margin-top: 10px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            line-height: 1.35;
+	        .file-actions {
+	            display: flex;
+	            align-items: center;
+	            gap: 12px;
+	        }
+
+	        .file-remove {
+	            border: none;
+	            background: none;
+	            padding: 0;
+	            cursor: pointer;
+	            font-weight: 700;
+	            font-size: 13px;
+	            color: #B42318;
+	            text-decoration: underline;
+	        }
+
+	        .file-remove:disabled {
+	            opacity: 0.5;
+	            cursor: not-allowed;
+	            text-decoration: none;
+	        }
+
+	        .help-text {
+	            margin-top: 10px;
+	            font-size: 13px;
+	            color: var(--text-secondary);
+	            line-height: 1.35;
         }
     </style>
 </head>
@@ -981,15 +1040,24 @@
         window.scrollTo(0, 0);
     }
 
-    function fileSignature(file) {
-        return `${file.name}::${file.size}::${file.lastModified || 0}`;
-    }
+	    function fileSignature(file) {
+	        return `${file.name}::${file.size}::${file.lastModified || 0}`;
+	    }
 
-    function addFiles(files) {
-        const incoming = Array.from(files || []);
-        if (!incoming.length) return;
+	    function escapeHtml(str) {
+	        return String(str)
+	            .replaceAll('&', '&amp;')
+	            .replaceAll('<', '&lt;')
+	            .replaceAll('>', '&gt;')
+	            .replaceAll('"', '&quot;')
+	            .replaceAll("'", '&#39;');
+	    }
 
-        const existing = new Set(passportFiles.map(fileSignature));
+	    function addFiles(files) {
+	        const incoming = Array.from(files || []);
+	        if (!incoming.length) return;
+
+	        const existing = new Set(passportFiles.map(fileSignature));
         for (const file of incoming) {
             const sig = fileSignature(file);
             if (existing.has(sig)) continue;
@@ -1001,18 +1069,27 @@
         document.getElementById('start_processing_btn').disabled = passportFiles.length === 0 || processingInProgress;
     }
 
-    function renderFilesList(statusMap = {}) {
-        const list = document.getElementById('files_list');
-        if (!list) return;
-        if (!passportFiles.length) {
-            list.innerHTML = '<div style="margin-top:8px;">Файлы не выбраны</div>';
-            return;
-        }
-        list.innerHTML = passportFiles.map((f, i) => {
-            const status = statusMap[i] || 'Готов';
-            return `<div class="file-item"><div>${i + 1}. ${f.name}</div><div class="file-status">${status}</div></div>`;
-        }).join('');
-    }
+	    function renderFilesList(statusMap = {}) {
+	        const list = document.getElementById('files_list');
+	        if (!list) return;
+	        if (!passportFiles.length) {
+	            list.innerHTML = '<div style="margin-top:8px;">Файлы не выбраны</div>';
+	            return;
+	        }
+	        list.innerHTML = passportFiles.map((f, i) => {
+	            const status = statusMap[i] || 'Готов';
+	            const disabled = processingInProgress ? 'disabled' : '';
+	            return `
+	                <div class="file-item">
+	                    <div>${i + 1}. ${escapeHtml(f.name)}</div>
+	                    <div class="file-actions">
+	                        <button type="button" class="file-remove" data-idx="${i}" ${disabled}>Отменить</button>
+	                        <div class="file-status">${escapeHtml(status)}</div>
+	                    </div>
+	                </div>
+	            `;
+	        }).join('');
+	    }
 
     async function uploadPassportFile(file) {
         const formData = new FormData();
@@ -1050,7 +1127,9 @@
             passport_expiry: expiry,
             iin: iin,
             passport_image_path: passportPath,
-            _source_file: filename || ""
+            _source_file: filename || "",
+            is_infant: false,
+            is_child: false
         };
     }
 
@@ -1100,7 +1179,9 @@
                     gender: '-',
                     passport_expiry: '-',
                     iin: '-',
-                    passport_image_path: null
+                    passport_image_path: null,
+                    is_infant: false,
+                    is_child: false
                 });
             }
 
@@ -1132,7 +1213,9 @@
                 gender: p.gender || "M",
                 passport_expiry: p.passport_expiry || "-",
                 iin: p.iin || "-",
-                passport_image_path: p.passport_image_path || null
+                passport_image_path: p.passport_image_path || null,
+                is_infant: p.is_infant || false,
+                is_child: p.is_child || false
             }));
 
             console.log("📋 Финальный pilgrimsData:", pilgrimsData);
@@ -1277,19 +1360,33 @@
         });
     }
 
-    if (chooseFilesBtn && filesInput) {
-        chooseFilesBtn.addEventListener('click', () => filesInput.click());
-        filesInput.addEventListener('change', (e) => {
-            addFiles(e.target.files);
-            e.target.value = '';
-        });
-    }
+	    if (chooseFilesBtn && filesInput) {
+	        chooseFilesBtn.addEventListener('click', () => filesInput.click());
+	        filesInput.addEventListener('change', (e) => {
+	            addFiles(e.target.files);
+	            e.target.value = '';
+	        });
+	    }
 
-    if (dropzone) {
-        dropzone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropzone.classList.add('dragover');
-        });
+	    const filesList = document.getElementById('files_list');
+	    if (filesList) {
+	        filesList.addEventListener('click', (e) => {
+	            const btn = e.target?.closest?.('.file-remove');
+	            if (!btn) return;
+	            if (processingInProgress) return;
+	            const idx = parseInt(btn.dataset.idx || '', 10);
+	            if (!Number.isFinite(idx) || idx < 0 || idx >= passportFiles.length) return;
+	            passportFiles.splice(idx, 1);
+	            renderFilesList();
+	            document.getElementById('start_processing_btn').disabled = passportFiles.length === 0 || processingInProgress;
+	        });
+	    }
+
+	    if (dropzone) {
+	        dropzone.addEventListener('dragover', (e) => {
+	            e.preventDefault();
+	            dropzone.classList.add('dragover');
+	        });
         dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
         dropzone.addEventListener('drop', (e) => {
             e.preventDefault();
@@ -1346,6 +1443,17 @@
                     <option value="M" ${p.gender === 'M' ? 'selected' : ''}>Мужской</option>
                     <option value="F" ${p.gender === 'F' ? 'selected' : ''}>Женский</option>
                 </select>
+
+                <div class="passenger-type-checkboxes">
+                    <label>
+                        <input type="checkbox" class="inf-checkbox" data-idx="${idx}" ${p.is_infant ? 'checked' : ''}>
+                        👶 INF (Младенец)
+                    </label>
+                    <label>
+                        <input type="checkbox" class="chd-checkbox" data-idx="${idx}" ${p.is_child ? 'checked' : ''}>
+                        🧒 CHD (Ребенок)
+                    </label>
+                </div>
 
                 <div id="passport_${idx}" class="passport-data">
                     <div class="passport-field"><strong>Фамилия:</strong> <span class="passport-last-name">${p.last_name}</span></div>
@@ -1408,6 +1516,46 @@
                 if (typeof pilgrimsData[idx] === 'undefined') return;
                 pilgrimsData[idx].gender = e.target.value;
                 updateNameDisplay(idx);
+            });
+        });
+
+        // Обработчики для чекбоксов INF/CHD (взаимоисключающие)
+        const infCheckboxes = document.querySelectorAll('.inf-checkbox');
+        const chdCheckboxes = document.querySelectorAll('.chd-checkbox');
+
+        infCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const idx = e.target.dataset.idx;
+                if (typeof pilgrimsData[idx] === 'undefined') return;
+
+                pilgrimsData[idx].is_infant = e.target.checked;
+
+                // Если выбран INF, снимаем CHD
+                if (e.target.checked) {
+                    pilgrimsData[idx].is_child = false;
+                    const chdCheckbox = document.querySelector(`.chd-checkbox[data-idx="${idx}"]`);
+                    if (chdCheckbox) chdCheckbox.checked = false;
+                }
+
+                console.log(`Паломник ${idx}: INF=${pilgrimsData[idx].is_infant}, CHD=${pilgrimsData[idx].is_child}`);
+            });
+        });
+
+        chdCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const idx = e.target.dataset.idx;
+                if (typeof pilgrimsData[idx] === 'undefined') return;
+
+                pilgrimsData[idx].is_child = e.target.checked;
+
+                // Если выбран CHD, снимаем INF
+                if (e.target.checked) {
+                    pilgrimsData[idx].is_infant = false;
+                    const infCheckbox = document.querySelector(`.inf-checkbox[data-idx="${idx}"]`);
+                    if (infCheckbox) infCheckbox.checked = false;
+                }
+
+                console.log(`Паломник ${idx}: INF=${pilgrimsData[idx].is_infant}, CHD=${pilgrimsData[idx].is_child}`);
             });
         });
     }
@@ -1638,7 +1786,9 @@
             gender: p.gender,
             passport_expiry: p.passport_expiry,
             iin: p.iin,
-            passport_image_path: p.passport_image_path || null
+            passport_image_path: p.passport_image_path || null,
+            is_infant: p.is_infant || false,
+            is_child: p.is_child || false
         }));
 
         console.log("📤 Отправка данных на сервер:", pilgrims);

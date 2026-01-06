@@ -31,6 +31,7 @@ from bull_project.bull_bot.database.requests import (
 )
 from bull_project.bull_bot.core.parsers.passport_parser import PassportParserEasyOCR as PassportParser
 from bull_project.bull_bot.core.parsers.pdf_generator import PassportPDFGenerator
+from bull_project.bull_bot.core.webhook_notifier import notify_new_booking
 from bull_project.bull_bot.database.requests import (
     get_last_n_bookings_by_manager,
     get_booking_by_id,
@@ -217,6 +218,8 @@ class PilgrimData(BaseModel):
     iin: Optional[str] = None
     passport_image_path: Optional[str] = None
     document_type: Optional[str] = "passport"  # "passport" или "id_card"
+    is_infant: bool = False  # Флаг INF (младенец до 2 лет)
+    is_child: bool = False   # Флаг CHD (ребенок)
 
 class BookingSubmitIn(BaseModel):
     pilgrims: List[PilgrimData] = []
@@ -561,7 +564,9 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 "Document Expiration": "-",  # НЕ записываем срок действия
                 "IIN": pilgrim.iin or "-",
                 "client_phone": pilgrim.phone or "-",
-                "phone": pilgrim.phone or "-"
+                "phone": pilgrim.phone or "-",
+                "is_infant": pilgrim.is_infant,
+                "is_child": pilgrim.is_child
             }
         elif passport_warning:
             # Если есть предупреждение о сроке паспорта - НЕ записываем паспортные данные
@@ -575,7 +580,9 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 "Document Expiration": "-",
                 "IIN": "-",
                 "client_phone": pilgrim.phone or "-",
-                "phone": pilgrim.phone or "-"
+                "phone": pilgrim.phone or "-",
+                "is_infant": pilgrim.is_infant,
+                "is_child": pilgrim.is_child
             }
         else:
             # Обычный паспорт - записываем все данные
@@ -589,7 +596,9 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 "Document Expiration": pilgrim.passport_expiry or "-",
                 "IIN": pilgrim.iin or "-",
                 "client_phone": pilgrim.phone or "-",
-                "phone": pilgrim.phone or "-"
+                "phone": pilgrim.phone or "-",
+                "is_infant": pilgrim.is_infant,
+                "is_child": pilgrim.is_child
             }
         group_data_for_sheets.append(p_sheet_data)
 
@@ -746,6 +755,20 @@ async def api_bookings_submit(payload: BookingSubmitIn):
     print(f"   Строки в таблице: {saved_rows}")
     print(f"   ID записей в БД: {db_ids}")
     print("="*60 + "\n")
+
+    # 8. 🔔 Отправляем webhook уведомление о новой брони
+    try:
+        await notify_new_booking(
+            bookings_data=db_records,
+            package_name=package_name,
+            sheet_name=sheet_name,
+            table_id=payload.table_id,
+            db_ids=db_ids,
+            saved_rows=saved_rows
+        )
+    except Exception as webhook_error:
+        # Не прерываем выполнение если webhook не отправился
+        print(f"⚠️ Ошибка отправки webhook (не критично): {webhook_error}")
 
     return {"ok": True, "db_ids": db_ids, "saved_rows": saved_rows}
 
@@ -2336,6 +2359,44 @@ async def catch_all(full_path: str):
         return FileResponse(index_path)
     
     return {"error": "Not found"}
+
+
+@app.post("/api/webhook/test")
+async def test_webhook():
+    """
+    Тестовый endpoint для проверки работы webhook уведомлений
+    """
+    from bull_project.bull_bot.core.webhook_notifier import webhook_notifier
+
+    try:
+        success = await webhook_notifier.send_test_notification()
+
+        if success:
+            return {
+                "ok": True,
+                "message": "Тестовое уведомление отправлено успешно",
+                "webhook_url": webhook_notifier.webhook_url
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "ok": False,
+                    "error": "Не удалось отправить тестовое уведомление",
+                    "webhook_enabled": webhook_notifier.enabled,
+                    "webhook_url": webhook_notifier.webhook_url if webhook_notifier.enabled else "не настроен"
+                }
+            )
+
+    except Exception as e:
+        print(f"❌ Ошибка тестового webhook: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": str(e)}
+        )
+
 
 # ============= КОНЕЦ =============
 

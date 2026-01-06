@@ -25,6 +25,7 @@ HEADER_MAP = {
     "source": ["source", "источник"],
     "amount_paid": ["paid", "оплачено", "внесено"],
     "region": ["region", "регион"],
+    "num": ["№", "num", "number", "n", "#"],  # Колонка для номера
 }
 
 ROOM_FALLBACKS = {

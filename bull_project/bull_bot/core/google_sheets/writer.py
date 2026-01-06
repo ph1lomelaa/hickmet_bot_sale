@@ -19,6 +19,158 @@ def row_col_to_a1(row, col):
         div = int((div - module) / 26)
     return string + str(row)
 
+async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims, saved_rows, cols, common_data, group_color):
+    """
+    Обрабатывает INF паломников - вставляет для них строки под родителями.
+
+    🔥 НОВАЯ ЛОГИКА: Все INF записываются ПОСЛЕ обычных паломников,
+    даже если INF идет первым в списке - он будет записан последним и возьмет тип комнаты от первого обычного.
+
+    Args:
+        ws: Worksheet объект
+        all_values: Все значения таблицы
+        all_pilgrims: ВСЕ паломники в исходном порядке (включая INF)
+        regular_pilgrims: Только обычные паломники (не-INF)
+        saved_rows: Строки где записаны обычные паломники
+        cols: Карта колонок
+        common_data: Общие данные брони
+        group_color: Цвет группы
+
+    Returns:
+        list: Финальный список строк для ВСЕХ паломников (включая INF)
+    """
+    print(f"\n🍼 Обработка INF паломников...")
+
+    # Проверяем есть ли INF паломники
+    inf_count = sum(1 for p in all_pilgrims if p.get('is_infant', False))
+    if inf_count == 0:
+        print(f"   ℹ️ INF паломников нет, возвращаем исходные строки")
+        return saved_rows
+
+    print(f"   Найдено INF паломников: {inf_count}")
+
+    # 🔥 НОВЫЙ ПОДХОД: Создаем карту индекс в all_pilgrims -> строка в таблице (только для обычных)
+    pilgrim_idx_to_row = {}
+    regular_idx = 0
+
+    for i, pilgrim in enumerate(all_pilgrims):
+        is_inf = pilgrim.get('is_infant', False)
+        if not is_inf:
+            pilgrim_idx_to_row[i] = saved_rows[regular_idx]
+            regular_idx += 1
+
+    print(f"   Карта обычных паломников: {pilgrim_idx_to_row}")
+
+    # Результирующий список строк для ВСЕХ паломников
+    final_rows = [None] * len(all_pilgrims)
+
+    # Заполняем строки для обычных паломников
+    for idx, row in pilgrim_idx_to_row.items():
+        final_rows[idx] = row
+        print(f"   ✅ Обычный паломник #{idx+1}: строка {row}")
+
+    # 🔥 Обрабатываем INF паломников - ПОСЛЕ всех обычных
+    # Сортируем по индексу чтобы обрабатывать в порядке от конца к началу
+    # (чтобы вставки не сдвигали еще необработанных)
+    inf_indices = [(i, p) for i, p in enumerate(all_pilgrims) if p.get('is_infant', False)]
+
+    # Обрабатываем INF в обратном порядке (от конца к началу)
+    for i, pilgrim in reversed(inf_indices):
+        print(f"\n   🍼 INF паломник #{i+1} (из {len(all_pilgrims)}):")
+
+        # Ищем ближайшего обычного паломника ПЕРЕД этим INF
+        parent_idx = None
+        for j in range(i - 1, -1, -1):
+            if not all_pilgrims[j].get('is_infant', False):
+                parent_idx = j
+                break
+
+        # Если не нашли обычного паломника перед INF, берем первого обычного паломника
+        if parent_idx is None:
+            print(f"      INF идет первым, используем первого обычного паломника")
+            # Находим первого обычного паломника
+            for j in range(len(all_pilgrims)):
+                if not all_pilgrims[j].get('is_infant', False):
+                    parent_idx = j
+                    break
+
+        if parent_idx is None:
+            print(f"      ⚠️ Нет обычных паломников вообще - пропускаем INF")
+            continue
+
+        parent_row = pilgrim_idx_to_row[parent_idx]
+        print(f"      Родитель: паломник #{parent_idx+1}, строка {parent_row}")
+
+        try:
+            # Вставляем новую строку после parent_row
+            new_row_idx = parent_row + 1
+
+            # КРИТИЧНО: Вставляем пустую строку
+            ws.insert_row(values=[""] * 50, index=new_row_idx)
+            print(f"      ✅ Вставлена пустая строка {new_row_idx}")
+
+            # Подготавливаем данные для INF паломника
+            infant_data = {**common_data, **pilgrim}
+            infant_data['meal_type'] = 'INF'  # 🔥 Тип питания = INF
+
+            # Записываем данные младенца
+            updates_infant = []
+            price_tasks_infant = []
+            _prepare_updates(updates_infant, price_tasks_infant, new_row_idx, cols, infant_data)
+
+            # 🔥 Записываем "INF" в колонку "№"
+            if 'num' in cols:
+                num_col_a1 = row_col_to_a1(new_row_idx, cols['num'] + 1)
+                updates_infant.append({'range': num_col_a1, 'values': [['INF']]})
+                print(f"      ✅ Записали 'INF' в колонку №: {num_col_a1}")
+
+            # Применяем обновления
+            if updates_infant:
+                ws.batch_update(updates_infant)
+                print(f"      ✅ Данные младенца записаны")
+
+            # 🔥 ОБЪЕДИНЯЕМ ячейку типа комнаты по вертикали с родителем
+            if 'room' in cols:
+                room_col_idx = cols['room'] + 1
+                parent_room_a1 = row_col_to_a1(parent_row, room_col_idx)
+                infant_room_a1 = row_col_to_a1(new_row_idx, room_col_idx)
+                merge_range = f"{parent_room_a1}:{infant_room_a1}"
+
+                try:
+                    ws.merge_cells(merge_range, merge_type='MERGE_ALL')
+                    print(f"      ✅ Объединены ячейки типа комнаты: {merge_range}")
+                except Exception as e:
+                    print(f"      ⚠️ Не удалось объединить ячейки: {e}")
+
+            # Окрашиваем имя/фамилию младенца тем же цветом что и группа
+            for key in ("last_name", "first_name"):
+                if key in cols:
+                    a1 = row_col_to_a1(new_row_idx, cols[key] + 1)
+                    try:
+                        ws.format(a1, {"backgroundColor": group_color, "textFormat": {"bold": False}})
+                    except: pass
+
+            # Сохраняем строку младенца в карте и в final_rows
+            final_rows[i] = new_row_idx
+            print(f"      ✅ INF паломник #{i+1} записан в строку {new_row_idx}")
+
+            # 🔥 ВАЖНО: После вставки строки все последующие строки сдвигаются вниз!
+            # Обновляем карту pilgrim_idx_to_row для всех паломников после вставленной строки
+            for idx, row in pilgrim_idx_to_row.items():
+                if row >= new_row_idx:
+                    pilgrim_idx_to_row[idx] = row + 1
+                    if final_rows[idx] is not None:
+                        final_rows[idx] = row + 1
+
+        except Exception as e:
+            print(f"      ❌ Ошибка вставки строки для INF: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+
+    print(f"\n📊 Финальные строки для всех паломников: {final_rows}")
+    return final_rows
+
 async def save_group_booking(group_data: list, common_data: dict, placement_mode: str, specific_row=None, is_share=False):
     from bull_project.bull_bot.core.google_sheets.allocator import find_best_slot_for_group
 
@@ -44,11 +196,26 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
         color_tasks = []
         price_tasks = []
 
+        # 🔥 НОВАЯ ЛОГИКА: Разделяем паломников на обычных и INF
+        regular_pilgrims = []  # Не-INF паломники (для размещения)
+        all_pilgrims = []  # ВСЕ паломники в исходном порядке
+
+        for person in group_data:
+            is_inf = person.get('is_infant', False)
+            all_pilgrims.append(person)
+            if not is_inf:
+                regular_pilgrims.append(person)
+
+        print(f"\n📊 Обработка группы:")
+        print(f"   Всего паломников: {len(all_pilgrims)}")
+        print(f"   Обычных (для размещения): {len(regular_pilgrims)}")
+        print(f"   INF (младенцев): {len(all_pilgrims) - len(regular_pilgrims)}")
+
         # Пастельный цвет для всей группы (один цвет на всех)
         seed_base = "".join([
             common_data.get("package_name", ""),
             common_data.get("room_type", ""),
-            str(len(group_data))
+            str(len(regular_pilgrims))  # 🔥 Используем количество обычных паломников
         ])
         rnd = random.Random(seed_base)
         h = rnd.random()
@@ -57,20 +224,20 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
         r, g, b = colorsys.hsv_to_rgb(h, s, v)
         group_color = {"red": r, "green": g, "blue": b}
 
-        # 🔥 ИСПРАВЛЕНИЕ: Используем групповое размещение если паломников больше 1 или режим не specific_row
-        if not specific_row and len(group_data) > 0:
-            # Используем функцию группового размещения
+        # 🔥 ИСПРАВЛЕНИЕ: Используем групповое размещение для ОБЫЧНЫХ паломников (не-INF)
+        if not specific_row and len(regular_pilgrims) > 0:
+            # Используем функцию группового размещения только для обычных паломников
             saved_rows = find_best_slot_for_group(
                 all_values,
                 target_pkg,
-                group_data,
+                regular_pilgrims,  # 🔥 Передаем только не-INF паломников
                 target_room,
                 placement_mode
             )
 
-            if not saved_rows or len(saved_rows) != len(group_data):
+            if not saved_rows or len(saved_rows) != len(regular_pilgrims):
                 print(f"❌ Групповое размещение вернуло неполный список строк")
-                print(f"   Ожидалось: {len(group_data)}, получено: {len(saved_rows)}")
+                print(f"   Ожидалось: {len(regular_pilgrims)}, получено: {len(saved_rows)}")
                 return []
 
             # Получаем колонки для записи данных
@@ -84,12 +251,12 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
                 print(f"❌ Не найдены заголовки для пакета {target_pkg}")
                 return []
 
-            # Записываем данные для каждого паломника
-            for i, (person_passport, row_idx) in enumerate(zip(group_data, saved_rows)):
+            # Записываем данные для каждого ОБЫЧНОГО паломника
+            for i, (person_passport, row_idx) in enumerate(zip(regular_pilgrims, saved_rows)):
                 full_data = {**common_data, **person_passport}
                 _prepare_updates(updates, price_tasks, row_idx, cols, full_data)
                 # Планируем окраску имени/фамилии ТОЛЬКО для группы (больше 1 человека)
-                if len(group_data) > 1:
+                if len(regular_pilgrims) > 1:
                     for key in ("last_name", "first_name"):
                         if key in cols:
                             a1 = row_col_to_a1(row_idx, cols[key] + 1)
@@ -138,7 +305,13 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
                 try: ws.merge_cells(m_range, merge_type='MERGE_ALL')
                 except: pass
 
-        return saved_rows
+        # 🔥 ОБРАБОТКА INF ПАЛОМНИКОВ - вставка строк под родителями
+        final_rows = await process_inf_passengers(
+            ws, all_values, all_pilgrims, regular_pilgrims, saved_rows,
+            cols, common_data, group_color
+        )
+
+        return final_rows
 
     except Exception as e:
         print(f"❌ Save error: {e}")
@@ -163,6 +336,14 @@ def do_transform(ws, updates, merge_tasks, all_values, start_idx, r_col, col_let
 
 def _prepare_updates(updates_list, price_tasks, row_idx, cols, data):
     # Используем правильные ключи, которые приходят из паспортных данных
+
+    # 🔥 ЛОГИКА CHD: Если паломник помечен как CHD, меняем тип питания на "CHD"
+    meal_type = data.get('meal_type', '')
+    is_child = data.get('is_child', False)
+    if is_child:
+        meal_type = 'CHD'
+        print(f"   🧒 CHD: meal_type установлен в 'CHD' для строки {row_idx}")
+
     mapping = {
         'last_name': data.get('Last Name', '') or data.get('guest_last_name', ''),
         'first_name': data.get('First Name', '') or data.get('guest_first_name', ''),
@@ -173,7 +354,7 @@ def _prepare_updates(updates_list, price_tasks, row_idx, cols, data):
         'iin': data.get('IIN', '') or data.get('guest_iin', ''),
         'visa': data.get('visa_status', ''),
         'avia': data.get('avia', ''),
-        'meal': data.get('meal_type', ''),
+        'meal': meal_type,  # 🔥 Используем meal_type с учетом CHD
         'price': data.get('price', ''),
         'amount_paid': data.get('amount_paid', ''),
         'exchange_rate': data.get('exchange_rate', ''),
