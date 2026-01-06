@@ -1072,54 +1072,6 @@ async def cancel_booking_endpoint(booking_id: int):
         )
 
 
-@app.get("/api/care/passport-photo/{booking_id}")
-async def get_passport_photo(booking_id: int):
-    """
-    Получение фото паспорта по ID брони
-    """
-    try:
-        from fastapi.responses import FileResponse
-        import os
-
-        booking = await get_booking_by_id(booking_id)
-        if not booking:
-            return JSONResponse(
-                status_code=404,
-                content={"ok": False, "error": "Бронь не найдена"}
-            )
-
-        if not booking.passport_image_path:
-            return JSONResponse(
-                status_code=404,
-                content={"ok": False, "error": "Фото паспорта не найдено"}
-            )
-
-        # Путь к файлу паспорта (учитываем абсолютный/относительный)
-        file_path = make_abs_passport_path(booking.passport_image_path)
-
-        if not os.path.exists(file_path):
-            return JSONResponse(
-                status_code=404,
-                content={"ok": False, "error": "Файл паспорта не найден на диске"}
-            )
-
-        # Возвращаем файл
-        return FileResponse(
-            path=file_path,
-            media_type="application/octet-stream",
-            filename=os.path.basename(file_path)
-        )
-
-    except Exception as e:
-        print(f"❌ Ошибка получения фото паспорта: {e}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"ok": False, "error": str(e)}
-        )
-
-
 @app.get("/api/bookings/{booking_id}")
 async def get_booking_details(booking_id: int):
     """
