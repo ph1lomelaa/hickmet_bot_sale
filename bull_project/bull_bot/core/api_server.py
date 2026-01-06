@@ -736,37 +736,83 @@ async def get_manager_history(manager_id: int):
 @app.post("/api/passports/upload")
 async def api_passport_upload(file: UploadFile = File(...)):
     """
-    Принимает файл паспорта от бота, сохраняет, парсит и возвращает распознанные данные.
+    Принимает файл паспорта от бота/веб-интерфейса, сохраняет, парсит и возвращает распознанные данные.
     """
     try:
+        print(f"📥 Получен файл для загрузки: {file.filename}, тип: {file.content_type}")
+
+        # Создаем директорию если не существует
+        os.makedirs(ABS_UPLOADS_DIR, exist_ok=True)
+
         # Генерируем уникальное имя
         ts = int(datetime.now().timestamp() * 1000)
         orig_ext = os.path.splitext(file.filename or "")[1] or ".png"
         safe_ext = orig_ext if len(orig_ext) <= 5 else ".png"
-        target_path = os.path.join(ABS_UPLOADS_DIR, f"bot_upload_{ts}{safe_ext}")
+        filename = f"bot_upload_{ts}{safe_ext}"
+        target_path = os.path.join(ABS_UPLOADS_DIR, filename)
+
+        print(f"💾 Сохранение файла: {target_path}")
 
         # Сохраняем файл
-        with open(target_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
+        try:
+            with open(target_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
 
-        # Парсим паспорт
-        from bull_project.bull_bot.core.parsers.passport_parser import PassportParser
-        parser = PassportParser(debug=True)
-        passport_data = parser.parse(target_path)
+            file_size = os.path.getsize(target_path)
+            print(f"✅ Файл сохранен: {file_size / 1024:.2f} KB")
+        except Exception as e:
+            print(f"❌ Ошибка сохранения файла: {e}")
+            raise Exception(f"Не удалось сохранить файл: {str(e)}")
 
-        print(f"📄 Паспорт распознан:")
-        print(f"   Пол: {passport_data.gender}")
-        print(f"   Дата рождения: {passport_data.dob}")
-        print(f"   Номер документа: {passport_data.document_number}")
-        print(f"   Срок действия: {passport_data.expiration_date}")
-        print(f"   ИИН: {passport_data.iin}")
+        # Парсим паспорт с таймаутом
+        passport_data = None
+        try:
+            print(f"🔍 Запуск распознавания паспорта...")
 
-        # Возвращаем путь и распознанные данные
-        return {
-            "ok": True,
-            "path": target_path,
-            "parsed_data": {
+            # Используем run_in_threadpool для избежания блокировки
+            from bull_project.bull_bot.core.parsers.passport_parser import PassportParser
+
+            def parse_passport():
+                try:
+                    parser = PassportParser(debug=True)
+                    return parser.parse(target_path)
+                except Exception as e:
+                    print(f"⚠️ Ошибка парсера: {e}")
+                    return None
+
+            # Запускаем парсинг в отдельном потоке с таймаутом 45 секунд
+            import asyncio
+            passport_data = await asyncio.wait_for(
+                run_in_threadpool(parse_passport),
+                timeout=45.0
+            )
+
+            if passport_data:
+                print(f"✅ Паспорт распознан:")
+                print(f"   Имя: {passport_data.first_name}")
+                print(f"   Фамилия: {passport_data.last_name}")
+                print(f"   Пол: {passport_data.gender}")
+                print(f"   Дата рождения: {passport_data.dob}")
+                print(f"   Номер документа: {passport_data.document_number}")
+                print(f"   Срок действия: {passport_data.expiration_date}")
+                print(f"   ИИН: {passport_data.iin}")
+            else:
+                print(f"⚠️ Паспорт не распознан, вернем только путь к файлу")
+
+        except asyncio.TimeoutError:
+            print(f"⏱️ Таймаут распознавания паспорта (>45 сек)")
+            passport_data = None
+        except Exception as e:
+            print(f"⚠️ Ошибка распознавания паспорта: {e}")
+            import traceback
+            traceback.print_exc()
+            passport_data = None
+
+        # Формируем ответ
+        parsed_data = {}
+        if passport_data:
+            parsed_data = {
                 "first_name": passport_data.first_name or "",
                 "last_name": passport_data.last_name or "",
                 "gender": passport_data.gender or "",
@@ -775,9 +821,20 @@ async def api_passport_upload(file: UploadFile = File(...)):
                 "passport_expiry": passport_data.expiration_date or "",
                 "iin": passport_data.iin or ""
             }
+
+        # ВАЖНО: Возвращаем относительный путь (только имя файла)
+        # Это позволяет использовать его в разных окружениях
+        return {
+            "ok": True,
+            "path": filename,  # Возвращаем только имя файла, не полный путь
+            "absolute_path": target_path,  # Для отладки
+            "parsed_data": parsed_data,    # основной ключ
+            "data": parsed_data,           # алиас для фронтов, ожидающих data
+            "parsed": passport_data is not None
         }
+
     except Exception as e:
-        print(f"❌ Ошибка загрузки паспорта от бота: {e}")
+        print(f"❌ Критическая ошибка загрузки паспорта: {e}")
         import traceback
         traceback.print_exc()
         return JSONResponse(
@@ -2023,6 +2080,92 @@ async def download_all_passports():
         print(f"❌ Ошибка создания архива: {e}")
         import traceback
         traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": str(e)}
+        )
+
+
+@app.get("/api/admin/system-check")
+async def system_check():
+    """
+    Проверка системы: OCR, директории, память
+    """
+    try:
+        import sys
+        import psutil
+
+        result = {
+            "ok": True,
+            "timestamp": datetime.now().isoformat(),
+            "checks": {}
+        }
+
+        # Проверка 1: Директория uploads
+        result["checks"]["uploads_dir"] = {
+            "path": ABS_UPLOADS_DIR,
+            "exists": os.path.exists(ABS_UPLOADS_DIR),
+            "writable": os.access(ABS_UPLOADS_DIR, os.W_OK) if os.path.exists(ABS_UPLOADS_DIR) else False
+        }
+
+        # Проверка 2: EasyOCR
+        try:
+            import easyocr
+            result["checks"]["easyocr"] = {
+                "installed": True,
+                "version": getattr(easyocr, '__version__', 'unknown')
+            }
+
+            # Пробуем загрузить модели
+            try:
+                reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+                result["checks"]["easyocr"]["models_loaded"] = True
+                result["checks"]["easyocr"]["status"] = "✅ Работает"
+            except Exception as e:
+                result["checks"]["easyocr"]["models_loaded"] = False
+                result["checks"]["easyocr"]["error"] = str(e)
+                result["checks"]["easyocr"]["status"] = f"❌ Ошибка загрузки моделей: {str(e)[:100]}"
+        except ImportError:
+            result["checks"]["easyocr"] = {
+                "installed": False,
+                "status": "❌ Не установлен"
+            }
+
+        # Проверка 3: Память
+        try:
+            memory = psutil.virtual_memory()
+            result["checks"]["memory"] = {
+                "total_mb": round(memory.total / 1024 / 1024, 2),
+                "available_mb": round(memory.available / 1024 / 1024, 2),
+                "used_percent": memory.percent,
+                "status": "✅ OK" if memory.percent < 90 else "⚠️ Мало памяти"
+            }
+        except:
+            result["checks"]["memory"] = {"status": "❌ Не удалось проверить"}
+
+        # Проверка 4: Torch (для EasyOCR)
+        try:
+            import torch
+            result["checks"]["torch"] = {
+                "installed": True,
+                "version": torch.__version__,
+                "cuda_available": torch.cuda.is_available()
+            }
+        except ImportError:
+            result["checks"]["torch"] = {
+                "installed": False,
+                "status": "❌ Не установлен (требуется для EasyOCR)"
+            }
+
+        # Проверка 5: Python
+        result["checks"]["python"] = {
+            "version": sys.version,
+            "executable": sys.executable
+        }
+
+        return result
+
+    except Exception as e:
         return JSONResponse(
             status_code=500,
             content={"ok": False, "error": str(e)}

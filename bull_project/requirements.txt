@@ -76,3 +76,4 @@ python-multipart
 fastapi
 uvicorn[standard]
 reportlab==4.4.7
+psutil==6.1.1

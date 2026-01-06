@@ -1156,9 +1156,9 @@
                 }
 
                 const passportPath = uploadJson.path;
-                const parsedData = uploadJson.parsed_data || {};
+                const parsedData = uploadJson.parsed_data || uploadJson.data || {};
 
-                // Только сохраняем файл, НЕ трогаем таблицу и не проверяем строку/ФИО
+                // Только сохраняем файл паспорта, остальные данные брони НЕ трогаем
                 const patchBody = {
                     pilgrims: [{
                         passport_image_path: passportPath
@@ -1178,11 +1178,7 @@
                     throw new Error(updateJson.error || 'Ошибка обновления данных');
                 }
 
-                let msg = '✅ Паспорт загружен и данные обновлены.';
-                if (parsedData.passport_num) msg += `\nПаспорт: ${parsedData.passport_num}`;
-                if (parsedData.passport_expiry) msg += `\nСрок: ${parsedData.passport_expiry}`;
-                if (parsedData.date_of_birth) msg += `\nДР: ${parsedData.date_of_birth}`;
-                alert(msg);
+                alert('✅ Фото паспорта успешно загружено.');
 
                 const user = tg.initDataUnsafe?.user;
                 await loadBookings(urlManagerId || user?.id || 0);
