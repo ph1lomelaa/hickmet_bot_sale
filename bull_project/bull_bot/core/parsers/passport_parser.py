@@ -563,6 +563,114 @@ class PassportParserEasyOCR:
 
         return True
 
+    def _parse_mrz_date_yyMMdd(self, yymmdd: str, *, is_expiry: bool) -> Optional[str]:
+        """
+        Конвертирует MRZ дату YYMMDD -> DD.MM.YYYY.
+        Для expiry используем более "будущую" эвристику, чтобы не получить 19xx для срока действия.
+        """
+        if not yymmdd or not re.fullmatch(r"\d{6}", yymmdd):
+            return None
+        yy = int(yymmdd[0:2])
+        mm = int(yymmdd[2:4])
+        dd = int(yymmdd[4:6])
+
+        # Базовая проверка валидности (без сложных календарей)
+        if not (1 <= mm <= 12 and 1 <= dd <= 31):
+            return None
+
+        now = datetime.now()
+        pivot = now.year % 100
+
+        if is_expiry:
+            # Expiry почти всегда в будущем (или очень близко к текущему году).
+            # Если yy слишком "далеко в прошлом", трактуем как 20xx.
+            century = 2000
+            if yy > pivot + 30:
+                century = 1900
+        else:
+            # DOB: если yy больше текущего — почти наверняка 19xx, иначе 20xx.
+            century = 1900 if yy > pivot else 2000
+
+        yyyy = century + yy
+        return f"{dd:02d}.{mm:02d}.{yyyy:04d}"
+
+    def extract_mrz_from_text(self, text: str) -> Optional[dict]:
+        """
+        Извлечение MRZ из OCR-текста (без PassportEye).
+        Цель: надежно получить DOB/EXPIRY/SEX/номер документа и не путать ISSUE с EXPIRY.
+        """
+        if not text:
+            return None
+
+        # Собираем кандидаты MRZ строк из строк текста и "уплотненного" текста
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        candidates: list[str] = []
+
+        for ln in lines:
+            # Убираем пробелы, оставляем только A-Z0-9<
+            compact = re.sub(r"[^A-Z0-9<]", "", ln.upper())
+            if compact.startswith("P<") and len(compact) >= 30:
+                candidates.append(compact)
+            elif len(compact) >= 40 and compact.count("<") >= 2:
+                candidates.append(compact)
+
+        # Также пробуем вытащить MRZ из "склеенного" текста (если OCR сломал переносы)
+        dense = re.sub(r"[^A-Z0-9<\n]", "", text.upper())
+        for m in re.finditer(r"P<[A-Z0-9<]{30,}", dense):
+            candidates.append(m.group(0))
+
+        # Пытаемся собрать пару строк: P<... + вторая строка (44 символа)
+        for i, first in enumerate(candidates):
+            if not first.startswith("P<"):
+                continue
+            second = None
+            if i + 1 < len(candidates) and len(candidates[i + 1]) >= 40:
+                second = candidates[i + 1]
+            else:
+                # Иногда обе строки склеены одной строкой
+                if len(first) >= 88:
+                    second = first[44:88]
+                    first = first[0:44]
+
+            if not second:
+                continue
+
+            first = (first + "<" * 44)[:44]
+            second = (second + "<" * 44)[:44]
+
+            # Вторая строка паспортного MRZ (TD3):
+            # [0:9] doc#, [10] check, [11:14] nationality, [13:19] dob, [20] check,
+            # [20] sex, [21:27] expiry, ...
+            try:
+                doc_number = second[0:9].replace("<", "")
+                nationality = second[10:13].replace("<", "")
+                dob_raw = second[13:19]
+                gender = second[20:21].replace("<", "")
+                exp_raw = second[21:27]
+            except Exception:
+                continue
+
+            dob = self._parse_mrz_date_yyMMdd(dob_raw, is_expiry=False)
+            exp = self._parse_mrz_date_yyMMdd(exp_raw, is_expiry=True)
+
+            mrz: dict = {}
+            if doc_number and self.validate_document_number(doc_number):
+                mrz["document_number"] = doc_number
+            if nationality and re.fullmatch(r"[A-Z]{3}", nationality):
+                mrz["nationality"] = nationality
+            if gender in {"M", "F"}:
+                mrz["gender"] = gender
+            if dob and self.validate_date(dob):
+                mrz["dob"] = dob
+            if exp and self.validate_date(exp):
+                mrz["expiration_date"] = exp
+
+            # Имена/фамилия оставляем из существующей логики (MRZ line 1 уже парсится ниже по тексту)
+            if mrz:
+                return mrz
+
+        return None
+
     def detect_document_type(self, text: str) -> str:
         """
         Определение типа документа по ключевым словам
@@ -853,22 +961,79 @@ class PassportParserEasyOCR:
 
         # Дата рождения
         if not data.dob:
-            # Формат DD.MM.YYYY или с запятой
-            dob_match = re.search(r'\b(\d{2}[.,]\d{2}[.,]\d{4})\b', text)
-            if dob_match:
-                data.dob = normalize_date_sep(dob_match.group(1))
+            # ПРИОРИТЕТ: дата рождения рядом с ключевыми словами
+            dob_kw = re.search(
+                r'(?:DATE\s*OF\s*BIRTH|DATEOFBIRTH|DOB|DNEOF\s*BIRTH|BIRTH)[^\d]{0,30}(\d{2}[.,]\d{2}[.,]\d{4})',
+                text,
+                re.IGNORECASE
+            )
+            if dob_kw:
+                data.dob = normalize_date_sep(dob_kw.group(1))
             else:
-                # Формат "DD MM YYYY" (узбекские паспорта)
-                dob_match = re.search(r'(?:DATE\s*OF\s*BIRTH|DNEOF\s*BIRTH)[^\d]*(\d{2})\s+(\d{2})\s+(\d{4})', text, re.IGNORECASE)
+                # Формат DD.MM.YYYY или с запятой
+                dob_match = re.search(r'\b(\d{2}[.,]\d{2}[.,]\d{4})\b', text)
                 if dob_match:
-                    dd, mm, yyyy = dob_match.groups()
-                    data.dob = f"{dd}.{mm}.{yyyy}"
+                    data.dob = normalize_date_sep(dob_match.group(1))
+                else:
+                    # Формат "DD MM YYYY" (узбекские паспорта)
+                    dob_match = re.search(r'(?:DATE\s*OF\s*BIRTH|DNEOF\s*BIRTH)[^\d]*(\d{2})\s+(\d{2})\s+(\d{4})', text, re.IGNORECASE)
+                    if dob_match:
+                        dd, mm, yyyy = dob_match.groups()
+                        data.dob = f"{dd}.{mm}.{yyyy}"
 
-        # Срок действия - обычно последняя дата
-        date_matches = re.findall(r'\b(\d{2}[.,]\d{2}[.,]\d{4})\b', text)
-        normalized_dates = [normalize_date_sep(d) for d in date_matches]
-        if len(normalized_dates) >= 2:
-            data.expiration_date = normalized_dates[-1]  # Последняя дата
+        # Срок действия: НЕ берем "последнюю дату" (она часто оказывается DATE OF ISSUE).
+        if not data.expiration_date:
+            issue_kw = re.compile(
+                r'(?:DATE\s*OF\s*ISSUE|DATEOFISSUE|ISSUE\s*DATE|ISSUED\s*ON|ISSUED|ДАТА\s*ВЫДАЧИ)',
+                re.IGNORECASE
+            )
+            expiry_kw = re.compile(
+                r'(?:DATE\s*OF\s*EXPIRY|DATEOFEXPIRY|EXPIRY|EXPIRES|VALID\s*UNTIL|VALID\s*THRU|СРОК\s*ДЕЙСТВИЯ|ДЕЙСТВИТЕЛЕН\s*ДО)',
+                re.IGNORECASE
+            )
+            birth_kw = re.compile(
+                r'(?:DATE\s*OF\s*BIRTH|DATEOFBIRTH|DOB|BIRTH)',
+                re.IGNORECASE
+            )
+
+            date_iter = list(re.finditer(r'\b(\d{2}[.,]\d{2}[.,]\d{4})\b', text))
+            parsed_dates = []
+            for m in date_iter:
+                raw = normalize_date_sep(m.group(1))
+                try:
+                    dt = datetime.strptime(raw, "%d.%m.%Y")
+                except Exception:
+                    continue
+                start = max(0, m.start() - 40)
+                end = min(len(text), m.end() + 40)
+                ctx = text[start:end]
+                parsed_dates.append({
+                    "raw": raw,
+                    "dt": dt,
+                    "is_issue": bool(issue_kw.search(ctx)),
+                    "is_expiry": bool(expiry_kw.search(ctx)),
+                    "is_birth": bool(birth_kw.search(ctx)),
+                })
+
+            # 1) Если есть явные кандидаты expiry — берем самый поздний
+            expiry_candidates = [d for d in parsed_dates if d["is_expiry"] and not d["is_birth"]]
+            if expiry_candidates:
+                data.expiration_date = max(expiry_candidates, key=lambda d: d["dt"])["raw"]
+            else:
+                # 2) Иначе берем самый поздний date, который НЕ birth и НЕ issue
+                other_candidates = [d for d in parsed_dates if not d["is_birth"] and not d["is_issue"]]
+                # Исключаем DOB если уже найден
+                if data.dob:
+                    other_candidates = [d for d in other_candidates if d["raw"] != data.dob]
+                if other_candidates:
+                    data.expiration_date = max(other_candidates, key=lambda d: d["dt"])["raw"]
+                else:
+                    # 3) Фолбек: просто самый поздний из всех дат, кроме DOB
+                    any_candidates = parsed_dates
+                    if data.dob:
+                        any_candidates = [d for d in any_candidates if d["raw"] != data.dob]
+                    if any_candidates:
+                        data.expiration_date = max(any_candidates, key=lambda d: d["dt"])["raw"]
 
         # Пол - УСИЛЕННОЕ РАСПОЗНАВАНИЕ (обязательное поле!)
         if not data.gender:
@@ -922,6 +1087,7 @@ class PassportParserEasyOCR:
 
         # 1. PassportEye ОТКЛЮЧЕН (потребляет много памяти и дает мусорные данные)
         # mrz_data = self.extract_mrz_passporteye(file_path)
+        # PassportEye может быть тяжелым, поэтому сначала пробуем дешево вытащить MRZ из OCR-текста.
         mrz_data = None
 
         # 2. EasyOCR для текста
@@ -930,6 +1096,9 @@ class PassportParserEasyOCR:
 
         # 3. Парсим текст (уже нормализованный)
         data = self.parse_text_fields(text)
+
+        # 3.1. MRZ из текста (DOB/EXPIRY/SEX/номер) — критично, чтобы не путать ISSUE vs EXPIRY
+        mrz_data = self.extract_mrz_from_text(text) or mrz_data
 
         # 4. Сохраняем оригинальные имена из EasyOCR (до применения MRZ)
         easyocr_last_name = data.last_name
