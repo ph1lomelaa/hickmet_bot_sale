@@ -626,13 +626,43 @@
 	            text-decoration: none;
 	        }
 
-	        .help-text {
-	            margin-top: 10px;
-	            font-size: 13px;
-	            color: var(--text-secondary);
-	            line-height: 1.35;
-        }
-    </style>
+		        .help-text {
+		            margin-top: 10px;
+		            font-size: 13px;
+		            color: var(--text-secondary);
+		            line-height: 1.35;
+		        }
+
+		        .passport-warning {
+		            margin-top: 10px;
+		            padding: 10px 12px;
+		            border-radius: 12px;
+		            border: 1px solid #FFD18C;
+		            background: #FFF5E0;
+		            color: #8A5B00;
+		            font-size: 13px;
+		            font-weight: 700;
+		            line-height: 1.35;
+		        }
+
+		        .passport-warning.danger {
+		            border-color: #FDA29B;
+		            background: #FEF3F2;
+		            color: #B42318;
+		        }
+
+		        .file-warning {
+		            margin-top: 6px;
+		            font-size: 12px;
+		            font-weight: 700;
+		            color: #8A5B00;
+		            line-height: 1.35;
+		        }
+
+		        .file-warning.danger {
+		            color: #B42318;
+		        }
+	    </style>
 </head>
 <body>
 
@@ -918,7 +948,7 @@
         'Olzhas',
         'Zarina',
         'Symbat',
-        'Akzhol',
+        'AKZHOL',
         'bekbergen',
         'AKTOLKYN',
         'Arsentai',
@@ -1059,18 +1089,25 @@
 	        return `${file.name}::${file.size}::${file.lastModified || 0}`;
 	    }
 
-	    function escapeHtml(str) {
-	        return String(str)
-	            .replaceAll('&', '&amp;')
-	            .replaceAll('<', '&lt;')
-	            .replaceAll('>', '&gt;')
-	            .replaceAll('"', '&quot;')
-	            .replaceAll("'", '&#39;');
-	    }
+		    function escapeHtml(str) {
+		        return String(str)
+		            .replaceAll('&', '&amp;')
+		            .replaceAll('<', '&lt;')
+		            .replaceAll('>', '&gt;')
+		            .replaceAll('"', '&quot;')
+		            .replaceAll("'", '&#39;');
+		    }
 
-	    function addFiles(files) {
-	        const incoming = Array.from(files || []);
-	        if (!incoming.length) return;
+		    function getWarningClass(message) {
+		        const msg = String(message || '').toLowerCase();
+		        if (!msg) return '';
+		        if (msg.includes('просроч') || msg.includes('удостовер') || msg.includes('id card')) return 'danger';
+		        return '';
+		    }
+
+		    function addFiles(files) {
+		        const incoming = Array.from(files || []);
+		        if (!incoming.length) return;
 
 	        const existing = new Set(passportFiles.map(fileSignature));
         for (const file of incoming) {
@@ -1084,27 +1121,30 @@
         document.getElementById('start_processing_btn').disabled = passportFiles.length === 0 || processingInProgress;
     }
 
-	    function renderFilesList(statusMap = {}) {
-	        const list = document.getElementById('files_list');
-	        if (!list) return;
-	        if (!passportFiles.length) {
-	            list.innerHTML = '<div style="margin-top:8px;">Файлы не выбраны</div>';
-	            return;
-	        }
-	        list.innerHTML = passportFiles.map((f, i) => {
-	            const status = statusMap[i] || 'Готов';
-	            const disabled = processingInProgress ? 'disabled' : '';
-	            return `
-	                <div class="file-item">
-	                    <div>${i + 1}. ${escapeHtml(f.name)}</div>
-	                    <div class="file-actions">
-	                        <button type="button" class="file-remove" data-idx="${i}" ${disabled}>Отменить</button>
-	                        <div class="file-status">${escapeHtml(status)}</div>
-	                    </div>
-	                </div>
-	            `;
-	        }).join('');
-	    }
+		    function renderFilesList(statusMap = {}, warningMap = {}) {
+		        const list = document.getElementById('files_list');
+		        if (!list) return;
+		        if (!passportFiles.length) {
+		            list.innerHTML = '<div style="margin-top:8px;">Файлы не выбраны</div>';
+		            return;
+		        }
+		        list.innerHTML = passportFiles.map((f, i) => {
+		            const status = statusMap[i] || 'Готов';
+		            const warning = warningMap[i];
+		            const warningClass = warning ? getWarningClass(warning) : '';
+		            const disabled = processingInProgress ? 'disabled' : '';
+		            return `
+		                <div class="file-item">
+		                    <div>${i + 1}. ${escapeHtml(f.name)}</div>
+		                    ${warning ? `<div class="file-warning ${warningClass}">${escapeHtml(warning)}</div>` : ''}
+		                    <div class="file-actions">
+		                        <button type="button" class="file-remove" data-idx="${i}" ${disabled}>Отменить</button>
+		                        <div class="file-status">${escapeHtml(status)}</div>
+		                    </div>
+		                </div>
+		            `;
+		        }).join('');
+		    }
 
     async function uploadPassportFile(file) {
         const formData = new FormData();
@@ -1119,61 +1159,66 @@
         return json;
     }
 
-    function buildPilgrimFromParsed(parsed, filename) {
-        const data = parsed?.data || parsed?.parsed_data || {};
-        const firstName = data.first_name || "-";
-        const lastName = data.last_name || "-";
-        const gender = data.gender || "-";
-        const dob = data.date_of_birth || "-";
-        const passportNum = data.passport_num || "-";
-        const expiry = data.passport_expiry || "-";
-        const iin = data.iin || "-";
-        const passportPath = parsed?.path || null;
-        const displayName = `${lastName !== '-' ? lastName : ''} ${firstName !== '-' ? firstName : ''}`.trim() || '-';
+	    function buildPilgrimFromParsed(parsed, filename) {
+	        const data = parsed?.data || parsed?.parsed_data || {};
+	        const firstName = data.first_name || "-";
+	        const lastName = data.last_name || "-";
+	        const gender = data.gender || "-";
+	        const dob = data.date_of_birth || "-";
+	        const passportNum = data.passport_num || "-";
+	        const expiry = data.passport_expiry || "-";
+	        const iin = data.iin || "-";
+	        const passportPath = parsed?.path || null;
+	        const passportWarning = parsed?.passport_warning || data.passport_warning || null;
+	        const displayName = `${lastName !== '-' ? lastName : ''} ${firstName !== '-' ? firstName : ''}`.trim() || '-';
 
-        return {
-            name: displayName,
-            last_name: lastName,
-            first_name: firstName,
-            phone: "-",
-            passport_num: passportNum,
-            date_of_birth: dob,
-            gender: gender,
-            passport_expiry: expiry,
-            iin: iin,
-            passport_image_path: passportPath,
-            _source_file: filename || "",
-            is_infant: false,
-            is_child: false
-        };
-    }
+	        return {
+	            name: displayName,
+	            last_name: lastName,
+	            first_name: firstName,
+	            phone: "-",
+	            passport_num: passportNum,
+	            date_of_birth: dob,
+	            gender: gender,
+	            passport_expiry: expiry,
+	            iin: iin,
+	            passport_image_path: passportPath,
+	            passport_warning: passportWarning,
+	            _source_file: filename || "",
+	            is_infant: false,
+	            is_child: false
+	        };
+	    }
 
     async function processAllPassportsAndCreatePilgrims() {
         if (processingInProgress) return;
         if (!creationCount || creationCount < 1) return alert("Укажите количество паломников");
         if (!passportFiles.length) return alert("Выберите файлы паспортов");
 
-        processingInProgress = true;
-        const statusMap = {};
-        const btn = document.getElementById('start_processing_btn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="icon">⏳</span> Обрабатываю...';
+	        processingInProgress = true;
+	        const statusMap = {};
+	        const warningMap = {};
+	        const btn = document.getElementById('start_processing_btn');
+	        btn.disabled = true;
+	        btn.innerHTML = '<span class="icon">⏳</span> Обрабатываю...';
 
         const results = [];
         try {
-            for (let i = 0; i < passportFiles.length; i++) {
-                statusMap[i] = '⏳';
-                renderFilesList(statusMap);
-                try {
-                    const parsed = await uploadPassportFile(passportFiles[i]);
-                    results.push({ ok: true, file: passportFiles[i], parsed });
-                    statusMap[i] = parsed.parsed ? '✅' : '⚠️';
-                } catch (e) {
-                    results.push({ ok: false, file: passportFiles[i], error: String(e?.message || e) });
-                    statusMap[i] = '❌';
-                }
-                renderFilesList(statusMap);
-            }
+	            for (let i = 0; i < passportFiles.length; i++) {
+	                statusMap[i] = '⏳';
+	                renderFilesList(statusMap, warningMap);
+	                try {
+	                    const parsed = await uploadPassportFile(passportFiles[i]);
+	                    results.push({ ok: true, file: passportFiles[i], parsed });
+	                    statusMap[i] = parsed.parsed ? '✅' : '⚠️';
+	                    warningMap[i] = parsed.passport_warning || null;
+	                } catch (e) {
+	                    results.push({ ok: false, file: passportFiles[i], error: String(e?.message || e) });
+	                    statusMap[i] = '❌';
+	                    warningMap[i] = null;
+	                }
+	                renderFilesList(statusMap, warningMap);
+	            }
 
             const okResults = results.filter(r => r.ok).map(r => buildPilgrimFromParsed(r.parsed, r.file?.name));
 
@@ -1183,22 +1228,23 @@
             }
 
             const pilgrims = okResults.slice(0, creationCount);
-            while (pilgrims.length < creationCount) {
-                pilgrims.push({
-                    name: '-',
-                    last_name: '-',
-                    first_name: '-',
-                    phone: '-',
-                    passport_num: '-',
-                    date_of_birth: '-',
-                    gender: '-',
-                    passport_expiry: '-',
-                    iin: '-',
-                    passport_image_path: null,
-                    is_infant: false,
-                    is_child: false
-                });
-            }
+	            while (pilgrims.length < creationCount) {
+	                pilgrims.push({
+	                    name: '-',
+	                    last_name: '-',
+	                    first_name: '-',
+	                    phone: '-',
+	                    passport_num: '-',
+	                    date_of_birth: '-',
+	                    gender: '-',
+	                    passport_expiry: '-',
+	                    iin: '-',
+	                    passport_image_path: null,
+	                    passport_warning: null,
+	                    is_infant: false,
+	                    is_child: false
+	                });
+	            }
 
             pilgrimsData = pilgrims;
             console.log("🧾 Сформированы паломники из паспортов:", pilgrimsData);
@@ -1218,20 +1264,21 @@
             const pilgrims = JSON.parse(decodeURIComponent(pRaw));
             console.log("✅ Декодированные данные:", pilgrims);
 
-            pilgrimsData = pilgrims.map(p => ({
-                name: p.name || `${p.last_name || '-'} ${p.first_name || '-'}`,
-                last_name: p.last_name || "-",
-                first_name: p.first_name || "-",
-                phone: p.phone || "-",
-                passport_num: p.passport_num || "-",
-                date_of_birth: p.date_of_birth || "-",
-                gender: p.gender || "M",
-                passport_expiry: p.passport_expiry || "-",
-                iin: p.iin || "-",
-                passport_image_path: p.passport_image_path || null,
-                is_infant: p.is_infant || false,
-                is_child: p.is_child || false
-            }));
+	            pilgrimsData = pilgrims.map(p => ({
+	                name: p.name || `${p.last_name || '-'} ${p.first_name || '-'}`,
+	                last_name: p.last_name || "-",
+	                first_name: p.first_name || "-",
+	                phone: p.phone || "-",
+	                passport_num: p.passport_num || "-",
+	                date_of_birth: p.date_of_birth || "-",
+	                gender: p.gender || "M",
+	                passport_expiry: p.passport_expiry || "-",
+	                iin: p.iin || "-",
+	                passport_image_path: p.passport_image_path || null,
+	                passport_warning: p.passport_warning || null,
+	                is_infant: p.is_infant || false,
+	                is_child: p.is_child || false
+	            }));
 
             console.log("📋 Финальный pilgrimsData:", pilgrimsData);
             showStep1();
@@ -1437,21 +1484,22 @@
         loadBookingData(currentBookingId);
     }
 
-    function renderPilgrims() {
-        const container = document.getElementById('pilgrims-container');
-        container.innerHTML = pilgrimsData.map((p, idx) => `
-            <div class="tourist-card">
-                <div class="tourist-header">
-                    <span class="tourist-name" data-name-idx="${idx}">👤 ${p.last_name} ${p.first_name}</span>
-                    <button onclick="togglePassportData(${idx})" class="passport-btn">
-                        📋 Паспорт
-                    </button>
-                </div>
-                <div class="name-row">
-                    <input type="text" class="name-input last-name-input" data-idx="${idx}" placeholder="Фамилия" value="${p.last_name !== '-' ? p.last_name : ''}">
-                    <input type="text" class="name-input first-name-input" data-idx="${idx}" placeholder="Имя" value="${p.first_name !== '-' ? p.first_name : ''}">
-                </div>
-                <div class="name-hint">Можно изменить имя/фамилию, если распознано неправильно</div>
+	    function renderPilgrims() {
+	        const container = document.getElementById('pilgrims-container');
+	        container.innerHTML = pilgrimsData.map((p, idx) => `
+	            <div class="tourist-card">
+	                <div class="tourist-header">
+	                    <span class="tourist-name" data-name-idx="${idx}">👤 ${p.last_name} ${p.first_name}</span>
+	                    <button onclick="togglePassportData(${idx})" class="passport-btn">
+	                        📋 Паспорт
+	                    </button>
+	                </div>
+	                ${p.passport_warning ? `<div class="passport-warning ${getWarningClass(p.passport_warning)}">${escapeHtml(p.passport_warning)}</div>` : ''}
+	                <div class="name-row">
+	                    <input type="text" class="name-input last-name-input" data-idx="${idx}" placeholder="Фамилия" value="${p.last_name !== '-' ? p.last_name : ''}">
+	                    <input type="text" class="name-input first-name-input" data-idx="${idx}" placeholder="Имя" value="${p.first_name !== '-' ? p.first_name : ''}">
+	                </div>
+	                <div class="name-hint">Можно изменить имя/фамилию, если распознано неправильно</div>
                 <input type="tel" class="phone-input" data-idx="${idx}" placeholder="Номер телефона" value="${p.phone !== '-' ? p.phone : ''}">
                 <select class="gender-select" data-idx="${idx}">
                     <option value="" ${(!p.gender || p.gender === '-') ? 'selected' : ''}>Пол (обязательно) — выберите</option>
