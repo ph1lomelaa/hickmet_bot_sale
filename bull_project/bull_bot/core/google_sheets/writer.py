@@ -1,5 +1,6 @@
 import random
 import colorsys
+import re
 from bull_project.bull_bot.core.google_sheets.client import (
     get_google_client,
     get_worksheet_by_title,
@@ -7,7 +8,8 @@ from bull_project.bull_bot.core.google_sheets.client import (
 from bull_project.bull_bot.core.google_sheets.allocator import (
     check_has_train_column,
     find_package_row,
-    find_headers_extended
+    find_headers_extended,
+    get_room_size,
 )
 
 def row_col_to_a1(row, col):
@@ -101,6 +103,20 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
         parent_row = pilgrim_idx_to_row[parent_idx]
         print(f"      Родитель: паломник #{parent_idx+1}, строка {parent_row}")
 
+        def _get_cell_value(row_idx: int, col_zero_based: int) -> str:
+            if row_idx <= 0:
+                return ""
+            if row_idx - 1 >= len(all_values):
+                return ""
+            row = all_values[row_idx - 1]
+            if col_zero_based >= len(row):
+                return ""
+            return str(row[col_zero_based] or "").strip()
+
+        def _col_letter(col_1_based: int) -> str:
+            # row_col_to_a1(1, col) => "D1"
+            return re.sub(r"\d+", "", row_col_to_a1(1, col_1_based))
+
         try:
             # Вставляем новую строку после parent_row
             new_row_idx = parent_row + 1
@@ -134,13 +150,34 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
             # 🔥 ОБЪЕДИНЯЕМ ячейку типа комнаты по вертикали с родителем
             if 'room' in cols:
                 room_col_idx = cols['room'] + 1
-                parent_room_a1 = row_col_to_a1(parent_row, room_col_idx)
-                infant_room_a1 = row_col_to_a1(new_row_idx, room_col_idx)
-                merge_range = f"{parent_room_a1}:{infant_room_a1}"
+                col_letter = _col_letter(room_col_idx)
+
+                # Частый кейс: тип комнаты уже был объединён на несколько строк (QUAD/TRPL/DBL),
+                # и вставленная строка не попадает в существующий merge. Тогда нужно расширить merge:
+                # unmerge старого диапазона -> merge с +1 строкой.
+                room_col_zero = cols['room']
+                start_row = parent_row
+                while start_row > 1 and _get_cell_value(start_row, room_col_zero) == "":
+                    start_row -= 1
+
+                room_value = _get_cell_value(start_row, room_col_zero)
+                room_size = get_room_size(room_value) if room_value else 1
+                end_row = start_row + max(1, room_size) - 1
+                if parent_row > end_row:
+                    end_row = parent_row
+
+                new_end_row = max(end_row + 1, new_row_idx)
+                old_range = f"{col_letter}{start_row}:{col_letter}{end_row}"
+                new_range = f"{col_letter}{start_row}:{col_letter}{new_end_row}"
 
                 try:
-                    ws.merge_cells(merge_range, merge_type='MERGE_ALL')
-                    print(f"      ✅ Объединены ячейки типа комнаты: {merge_range}")
+                    ws.unmerge_cells(old_range)
+                except Exception:
+                    pass
+
+                try:
+                    ws.merge_cells(new_range, merge_type='MERGE_ALL')
+                    print(f"      ✅ Объединены ячейки типа комнаты: {new_range}")
                 except Exception as e:
                     print(f"      ⚠️ Не удалось объединить ячейки: {e}")
 
@@ -263,8 +300,8 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
             for i, (person_passport, row_idx) in enumerate(zip(regular_pilgrims, saved_rows)):
                 full_data = {**common_data, **person_passport}
                 _prepare_updates(updates, price_tasks, row_idx, cols, full_data)
-                # Планируем окраску имени/фамилии ТОЛЬКО для группы (больше 1 человека)
-                if len(regular_pilgrims) > 1:
+                # Планируем окраску имени/фамилии для группы (если в группе > 1 человека, включая INF)
+                if len(all_pilgrims) > 1:
                     for key in ("last_name", "first_name"):
                         if key in cols:
                             a1 = row_col_to_a1(row_idx, cols[key] + 1)
@@ -284,7 +321,7 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
                 saved_rows.append(row_idx)
                 full_data = {**common_data, **person_passport}
                 _prepare_updates(updates, price_tasks, row_idx, cols, full_data)
-                # Планируем окраску имени/фамилии ТОЛЬКО для группы (больше 1 человека)
+                # Планируем окраску имени/фамилии для группы (если в группе > 1 человека, включая INF)
                 if len(group_data) > 1:
                     for key in ("last_name", "first_name"):
                         if key in cols:
