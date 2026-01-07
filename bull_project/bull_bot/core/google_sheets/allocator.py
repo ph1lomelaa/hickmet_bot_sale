@@ -867,7 +867,7 @@ def get_open_rooms_for_manual_selection(all_rows, pkg_name, needed_count=1, need
                 'type': room_type.title(),
                 'guests': display_guests,
                 'free': free_count,
-                'gender': room_gender if room_gender != "Empty" else (target_gender_norm or 'M'),
+                'gender': room_gender if room_gender != "Empty" else (target_gender_norm or 'Empty'),
                 'last_guest': last_guest,
                 'label': room_label,
             }
