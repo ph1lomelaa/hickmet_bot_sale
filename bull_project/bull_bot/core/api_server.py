@@ -933,6 +933,7 @@ async def api_passport_upload(file: UploadFile = File(...)):
 
         # Формируем ответ
         parsed_data = {}
+        passport_warning = None
         if passport_data:
             parsed_data = {
                 "first_name": passport_data.first_name or "",
@@ -945,6 +946,18 @@ async def api_passport_upload(file: UploadFile = File(...)):
                 "document_type": passport_data.document_type or "passport"
             }
 
+            # 🔥 Предупреждение по паспорту — чтобы WebApp показывал сразу
+            document_type = parsed_data.get("document_type") or "passport"
+            expiry = (parsed_data.get("passport_expiry") or "").strip()
+            if document_type == "id_card":
+                passport_warning = "⚠️ Загружено удостоверение личности, требуется заграничный паспорт"
+            elif not expiry or expiry == "-":
+                passport_warning = "⚠️ Срок действия не распознан"
+            else:
+                passport_warning = check_passport_expiry(expiry)
+
+            parsed_data["passport_warning"] = passport_warning
+
         # ВАЖНО: Возвращаем относительный путь (только имя файла)
         # Это позволяет использовать его в разных окружениях
         return {
@@ -953,6 +966,7 @@ async def api_passport_upload(file: UploadFile = File(...)):
             "absolute_path": target_path,  # Для отладки
             "parsed_data": parsed_data,    # основной ключ
             "data": parsed_data,           # алиас для фронтов, ожидающих data
+            "passport_warning": passport_warning,  # алиас на верхнем уровне для удобства
             "parsed": passport_data is not None
         }
 
