@@ -1057,6 +1057,7 @@
     const pRaw = urlParams.get('pilgrims');
     const fillModeParam = (urlParams.get('fill_mode') || '').toLowerCase();
     const countParam = parseInt((urlParams.get('count') || '').trim() || '0', 10);
+    const managerParam = urlParams.get('manager_name_text');
     const modeParam = urlParams.get('mode');
     const editBookingId = urlParams.get('booking_id');
     const oldBookingId = urlParams.get('old_booking_id');
@@ -1070,6 +1071,15 @@
     currentMode = modeParam || localStorage.getItem('mode') || 'create';
     currentBookingId = editBookingId || localStorage.getItem('edit_booking_id') || null;
     let currentOldBookingId = oldBookingId || localStorage.getItem('old_booking_id') || null;
+
+    // Предзаполняем менеджера, если его передали в URL (например при переносе)
+    if (managerParam) {
+        try {
+            setManagerName(decodeURIComponent(managerParam));
+        } catch (e) {
+            setManagerName(managerParam);
+        }
+    }
 
     function showStep0() {
         document.getElementById('step_0').style.display = 'block';

@@ -58,6 +58,8 @@ async def start_reschedule(call: CallbackQuery, state: FSMContext):
         is_reschedule=True,
         old_booking_id=booking_id,
         reschedule_passport=saved_passport_data,
+        # ВАЖНО: сохраняем менеджера из старой брони, чтобы WebApp/запись не "слетали" на текущего пользователя/пусто
+        manager_name_text=(b.manager_name_text or b.manager_name or "-"),
         total_pilgrims=1,
         current_pilgrim=1,
         pilgrims_list=[saved_passport_data],

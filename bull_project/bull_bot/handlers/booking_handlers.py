@@ -675,10 +675,14 @@ async def send_webapp_link(message: Message, state: FSMContext):
     if data.get('is_edit') and data.get('edit_booking_id'):
         params['mode'] = 'edit'
         params['booking_id'] = str(data['edit_booking_id'])
+        if data.get("manager_name_text"):
+            params["manager_name_text"] = str(data["manager_name_text"])
         print(f"✏️ Режим: РЕДАКТИРОВАНИЕ (booking_id={data['edit_booking_id']})")
     elif data.get('is_reschedule') and data.get('old_booking_id'):
         params['mode'] = 'reschedule'
         params['old_booking_id'] = str(data['old_booking_id'])
+        if data.get("manager_name_text"):
+            params["manager_name_text"] = str(data["manager_name_text"])
         print(f"♻️ Режим: ПЕРЕНОС (old_booking_id={data['old_booking_id']})")
     else:
         print(f"➕ Режим: СОЗДАНИЕ новой брони")
