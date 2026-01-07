@@ -112,6 +112,8 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
             # Подготавливаем данные для INF паломника
             infant_data = {**common_data, **pilgrim}
             infant_data['meal_type'] = 'INF'  # 🔥 Тип питания = INF
+            # На всякий случай: менеджер должен быть одинаковым для всех строк группы (включая INF)
+            infant_data['manager_name_text'] = common_data.get('manager_name_text', infant_data.get('manager_name_text', ''))
 
             # Записываем данные младенца
             updates_infant = []

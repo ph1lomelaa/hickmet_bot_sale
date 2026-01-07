@@ -566,6 +566,7 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 "IIN": pilgrim.iin or "-",
                 "client_phone": pilgrim.phone or "-",
                 "phone": pilgrim.phone or "-",
+                "manager_name_text": common["manager_name_text"],
                 "is_infant": pilgrim.is_infant,
                 "is_child": pilgrim.is_child
             }
@@ -582,6 +583,7 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 "IIN": "-",
                 "client_phone": pilgrim.phone or "-",
                 "phone": pilgrim.phone or "-",
+                "manager_name_text": common["manager_name_text"],
                 "is_infant": pilgrim.is_infant,
                 "is_child": pilgrim.is_child
             }
@@ -598,6 +600,7 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 "IIN": pilgrim.iin or "-",
                 "client_phone": pilgrim.phone or "-",
                 "phone": pilgrim.phone or "-",
+                "manager_name_text": common["manager_name_text"],
                 "is_infant": pilgrim.is_infant,
                 "is_child": pilgrim.is_child
             }

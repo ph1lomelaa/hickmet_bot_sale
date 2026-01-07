@@ -170,22 +170,14 @@
         /* Чекбоксы INF/CHD */
         .passenger-type-checkboxes {
             display: flex;
-            gap: 16px;
-            margin-top: 12px;
-            padding: 12px;
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            border: 2px solid var(--border-color);
+            gap: 8px;
+            margin-top: 8px;
         }
 
         .passenger-type-checkboxes label {
             display: flex;
             align-items: center;
-            gap: 8px;
             cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-primary);
             text-transform: none;
             letter-spacing: 0;
             margin: 0;
@@ -193,14 +185,34 @@
         }
 
         .passenger-type-checkboxes input[type="checkbox"] {
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-            accent-color: var(--accent-brown);
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
         }
 
-        .passenger-type-checkboxes label:hover {
+        .passenger-type-checkboxes span {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            line-height: 1;
+        }
+
+        .passenger-type-checkboxes input[type="checkbox"]:checked + span {
+            border-color: var(--accent-brown);
+            background: rgba(155, 132, 116, 0.10);
             color: var(--accent-dark);
+        }
+
+        .passenger-type-checkboxes label:hover span {
+            border-color: var(--accent-light);
+            color: var(--accent-brown);
         }
         
         /* Стилизованные радио-кнопки */
@@ -666,7 +678,10 @@
                     Начать обработку
                 </button>
                 <div class="help-text">
-                    После загрузки паспортов нажмите «Начать обработку». Если у части паломников нет паспортов — их имя/фамилию вы сможете ввести в форме вручную (количество менять не нужно).
+                    После загрузки паспортов нажмите «Начать обработку».<br>
+                    Если среди паломников есть <b>INF</b> или <b>CHD</b> — загрузите их паспорта вместе со всеми и отметьте под именем <b>INF</b>/<b>CHD</b> для корректной записи.<br>
+                    Если у части паломников нет паспортов — их имя/фамилию вы заполните вручную (количество менять не нужно).<br>
+                    Если имя/фамилия распознаны неверно — их можно исправить в форме.
                 </div>
             </div>
         </div>
@@ -1447,11 +1462,11 @@
                 <div class="passenger-type-checkboxes">
                     <label>
                         <input type="checkbox" class="inf-checkbox" data-idx="${idx}" ${p.is_infant ? 'checked' : ''}>
-                        👶 INF (Младенец)
+                        <span>INF</span>
                     </label>
                     <label>
                         <input type="checkbox" class="chd-checkbox" data-idx="${idx}" ${p.is_child ? 'checked' : ''}>
-                        🧒 CHD (Ребенок)
+                        <span>CHD</span>
                     </label>
                 </div>
 
