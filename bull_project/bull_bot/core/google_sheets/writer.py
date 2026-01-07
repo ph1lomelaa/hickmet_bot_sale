@@ -200,8 +200,14 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
         regular_pilgrims = []  # Не-INF паломники (для размещения)
         all_pilgrims = []  # ВСЕ паломники в исходном порядке
 
-        for person in group_data:
+        print(f"\n🔍 DEBUG: Проверка INF/CHD флагов для каждого паломника:")
+        for idx, person in enumerate(group_data):
             is_inf = person.get('is_infant', False)
+            is_chd = person.get('is_child', False)
+            name = f"{person.get('Last Name', 'N/A')} {person.get('First Name', 'N/A')}"
+            print(f"   Паломник {idx+1}: {name}")
+            print(f"      is_infant: {is_inf} (тип: {type(is_inf)})")
+            print(f"      is_child: {is_chd} (тип: {type(is_chd)})")
             all_pilgrims.append(person)
             if not is_inf:
                 regular_pilgrims.append(person)

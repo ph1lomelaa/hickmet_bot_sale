@@ -435,6 +435,7 @@ async def api_bookings_submit(payload: BookingSubmitIn):
         print(f"  Срок действия: {p.passport_expiry}")
         print(f"  ИИН: {p.iin}")
         print(f"  Телефон: {p.phone}")
+        print(f"  🔍 DEBUG: is_infant={p.is_infant}, is_child={p.is_child}")
 
     print("\n📦 Общие данные:")
     print(f"  Пакет: {payload.package_name}")
