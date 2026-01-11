@@ -1,11 +1,10 @@
 import os
 import json
 from datetime import datetime, timedelta
-import uvicorn
 from urllib.parse import unquote_plus
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, Query, UploadFile, File
+from fastapi import FastAPI, Query, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -64,6 +63,8 @@ from bull_project.bull_bot.core.google_sheets.writer import (
     save_group_booking
 )
 from bull_project.bull_bot.config.constants import ABS_UPLOADS_DIR
+from bull_project.bull_bot.api.routes.rooms import router as rooms_router
+from bull_project.bull_bot.api.routes.admin_requests import router as admin_requests_router
 # uploads dir is shared via volume on API service
 os.makedirs(ABS_UPLOADS_DIR, exist_ok=True)
 # Инициализация парсера паспортов
@@ -74,6 +75,9 @@ passport_parser = PassportParser(debug=False)
 # -----------------------------------------------------------------------------
 app = FastAPI()
 
+# WebSocket subscribers для мгновенных уведомлений о новых телефонах
+phone_subscribers: List[WebSocket] = []
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -82,6 +86,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition", "Content-Type"],  # ← ВАЖНО для скачивания файлов!
 )
+
+app.include_router(rooms_router)
+app.include_router(admin_requests_router)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CARE_WEBAPP_DIR = os.path.join(PROJECT_ROOT, "care_webapp")
@@ -92,6 +99,52 @@ ASSETS_DIR = os.path.join(PROJECT_ROOT, "assets")
 async def startup_event():
     await init_db()
 
+# -----------------------------------------------------------------------------
+# WEBSOCKET: Мгновенные уведомления о новых телефонах
+# -----------------------------------------------------------------------------
+@app.websocket("/ws/phones")
+async def websocket_phone_updates(websocket: WebSocket):
+    """WebSocket endpoint - клиенты подключаются сюда для получения новых телефонов мгновенно"""
+    await websocket.accept()
+    phone_subscribers.append(websocket)
+    print(f"📱 WebSocket клиент подключен. Всего подписчиков: {len(phone_subscribers)}")
+    try:
+        while True:
+            # Держим соединение открытым
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        phone_subscribers.remove(websocket)
+        print(f"📱 WebSocket клиент отключился. Всего подписчиков: {len(phone_subscribers)}")
+
+
+async def notify_phone_subscribers(phone: str, booking_id: int, guest_name: str):
+    """Отправляет уведомление о новом телефоне всем подключенным WebSocket клиентам"""
+    if not phone or phone == "-":
+        return
+
+    message = {
+        "event": "new_phone",
+        "phone": phone,
+        "booking_id": booking_id,
+        "guest_name": guest_name,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    disconnected = []
+    for ws in phone_subscribers:
+        try:
+            await ws.send_json(message)
+            print(f"📱 Отправлен телефон {phone} WebSocket клиенту")
+        except Exception:
+            disconnected.append(ws)
+
+    # Очистка отключенных клиентов
+    for ws in disconnected:
+        phone_subscribers.remove(ws)
+
+# -----------------------------------------------------------------------------
+# СТАТИЧЕСКИЕ ФАЙЛЫ
+# -----------------------------------------------------------------------------
 if os.path.isdir(CARE_WEBAPP_DIR):
     app.mount(
         "/care-webapp",
@@ -249,6 +302,10 @@ class BookingSubmitIn(BaseModel):
     manager_id: Optional[int] = None
 
 
+class RescheduleRequestIn(BookingSubmitIn):
+    old_booking_id: int
+
+
 class BookingUpdateIn(BaseModel):
     pilgrims: List[PilgrimData] = []
     # Пакет/дата не редактируем через PATCH, но можем передать для валидации
@@ -307,30 +364,6 @@ async def api_packages(date: str):
                 "data": []
             }
         )
-
-@app.get("/api/rooms")
-async def api_rooms(
-        table_id: str,
-        sheet_name: str,
-        package_name: str,
-        count: int = 1,
-        room_type: str = "Quad",
-        gender: str = "M",
-):
-    """Получение списка свободных комнат."""
-    s_name, p_name = normalize_sheet_and_package(sheet_name, package_name)
-    try:
-        # Получаем данные таблицы
-        all_rows = await run_in_threadpool(get_sheet_data, table_id, s_name)
-
-        rooms = await run_in_threadpool(
-            get_open_rooms_for_manual_selection,
-            all_rows, p_name, count, room_type, gender
-        )
-        return {"ok": True, "found": len(rooms) > 0, "rooms": rooms}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
-
 
 @app.post("/api/passport/parse")
 async def api_passport_parse(file: UploadFile = File(...)):
@@ -760,7 +793,17 @@ async def api_bookings_submit(payload: BookingSubmitIn):
     print(f"   ID записей в БД: {db_ids}")
     print("="*60 + "\n")
 
-    # 8. 🔔 Отправляем webhook уведомление о новой брони (временно отключено)
+    # 8. 📱 Отправляем WebSocket уведомления о новых телефонах
+    for i, record in enumerate(db_records):
+        phone = record.get("client_phone", "-")
+        if phone and phone != "-":
+            await notify_phone_subscribers(
+                phone=phone,
+                booking_id=db_ids[i] if i < len(db_ids) else 0,
+                guest_name=f"{record.get('guest_first_name', '')} {record.get('guest_last_name', '')}"
+            )
+
+    # 9. 🔔 Отправляем webhook уведомление о новой брони (временно отключено)
     # try:
     #     await notify_new_booking(
     #         bookings_data=db_records,
@@ -850,10 +893,111 @@ async def get_manager_history(manager_id: int):
         print(f"❌ Ошибка получения истории: {e}")
         import traceback
         traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"ok": False, "error": str(e)}
+    return JSONResponse(
+        status_code=500,
+        content={"ok": False, "error": str(e)}
+    )
+
+
+@app.post("/api/bookings/reschedule/request")
+async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
+    """
+    Создание заявки на перенос (без записи в Google Sheets).
+    Создаёт новую бронь в БД со статусом pending_reschedule + ApprovalRequest(old:<id>).
+    """
+    try:
+        if not payload.pilgrims:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "Список паломников пуст"})
+        if len(payload.pilgrims) != 1:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "Перенос возможен только для 1 паломника"})
+
+        old_booking = await get_booking_by_id(payload.old_booking_id)
+        if not old_booking:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "Старая бронь не найдена"})
+
+        manager_id = payload.manager_id or 0
+        try:
+            await add_user(
+                manager_id,
+                payload.manager_name_text or "Manager",
+                username="-",
+                role="manager",
+            )
+        except Exception:
+            pass
+
+        sheet_name, package_name = normalize_sheet_and_package(payload.sheet_name, payload.package_name)
+
+        pilgrim = payload.pilgrims[0]
+        gender = (pilgrim.gender or "").strip().upper()
+        if gender not in ("M", "F"):
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "Укажите пол (M/F) для переноса"},
+            )
+
+        # Предупреждение по сроку / типу документа
+        passport_warning = None
+        document_type = pilgrim.document_type or "passport"
+        is_id_card = (document_type == "id_card")
+        if is_id_card:
+            passport_warning = "⚠️ Загружено удостоверение личности, требуется заграничный паспорт"
+        else:
+            passport_warning = check_passport_expiry(pilgrim.passport_expiry)
+            if not passport_warning and (pilgrim.passport_expiry is None or str(pilgrim.passport_expiry).strip() == "-" or str(pilgrim.passport_expiry).strip() == ""):
+                passport_warning = "⚠️ Срок действия не распознан"
+
+        new_booking_data = {
+            "table_id": payload.table_id,
+            "sheet_name": sheet_name,
+            "package_name": package_name,
+            "region": payload.region or "-",
+            "departure_city": payload.departure_city or "-",
+            "source": payload.source or "-",
+            "amount_paid": str(payload.amount_paid or "0"),
+            "exchange_rate": str(payload.exchange_rate or "495"),
+            "discount": payload.discount or "-",
+            "contract_number": payload.contract_number or "-",
+            "visa_status": (payload.visa_status or "-").strip(),
+            "avia": payload.avia or "-",
+            "avia_request": payload.avia or "-",
+            "room_type": payload.room_type or "-",
+            "meal_type": payload.meal_type or "-",
+            "train": payload.train or "-",
+            "price": str(payload.price or "0"),
+            "comment": payload.comment or "-",
+            "client_phone": pilgrim.phone or "-",
+            "manager_name_text": payload.manager_name_text or "-",
+            "placement_type": payload.placement_type or "separate",
+            "guest_last_name": (pilgrim.last_name or "-").strip().upper(),
+            "guest_first_name": (pilgrim.first_name or "-").strip().upper(),
+            "gender": gender,
+            "date_of_birth": pilgrim.date_of_birth or "-",
+            "passport_num": (pilgrim.passport_num or "-").strip().upper(),
+            "passport_expiry": pilgrim.passport_expiry or "-",
+            "guest_iin": pilgrim.iin or "-",
+            "passport_image_path": pilgrim.passport_image_path,
+            "passport_warning": passport_warning,
+            "status": "pending_reschedule",
+            "sheet_row_number": None,
+            "group_members": [f"{(pilgrim.last_name or '').strip()} {(pilgrim.first_name or '').strip()}".strip() or "-"],
+        }
+
+        new_booking_id = await add_booking_to_db(new_booking_data, manager_id)
+        req_id = await create_approval_request(
+            new_booking_id,
+            "reschedule",
+            manager_id,
+            comment=f"old:{payload.old_booking_id}",
         )
+        await update_booking_fields(payload.old_booking_id, {"status": "pending_reschedule"})
+
+        return {"ok": True, "booking_id": new_booking_id, "request_id": req_id}
+    except Exception as e:
+        print(f"❌ Ошибка /api/bookings/reschedule/request: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 @app.post("/api/passports/upload")
 async def api_passport_upload(file: UploadFile = File(...)):
@@ -1095,52 +1239,16 @@ async def update_booking_endpoint(booking_id: int, payload: BookingUpdateIn):
 @app.post("/api/bookings/{booking_id}/cancel")
 async def cancel_booking_endpoint(booking_id: int):
     """
-    Отмена бронирования с записью красным цветом
+    УСТАРЕЛО: прямая отмена выключена. Отмена теперь только через заявку + одобрение админа.
     """
     try:
-        print(f"\n❌ Запрос на отмену брони #{booking_id}")
-        
-        # Получаем данные брони
-        booking = await get_booking_by_id(booking_id)
-        if not booking:
-            return JSONResponse(
-                status_code=404,
-                content={"ok": False, "error": "Бронь не найдена"}
-            )
-        
-        # 1. Очищаем данные из Google Sheets
-        sheets_cleared = False
-        if booking.sheet_row_number and booking.table_id and booking.sheet_name:
-            print(f"📝 Очистка данных из строки {booking.sheet_row_number}")
-            sheets_cleared = await clear_booking_in_sheets(
-                booking.table_id,
-                booking.sheet_name,
-                booking.sheet_row_number,
-                booking.package_name
-            )
-        
-        # 2. Записываем отмену красным цветом
-        red_written = False
-        if booking.table_id and booking.sheet_name and booking.package_name:
-            guest_name = f"{booking.guest_last_name} {booking.guest_first_name}"
-            print(f"🔴 Запись отмены красным для: {guest_name}")
-            red_written = await write_cancelled_booking_red(
-                booking.table_id,
-                booking.sheet_name,
-                booking.package_name,
-                guest_name
-            )
-        
-        # 3. Помечаем в БД как отмененную
-        await mark_booking_cancelled(booking_id)
-        print(f"💾 Статус в БД обновлен на 'cancelled'")
-        
-        return {
-            "ok": True,
-            "sheets_cleared": sheets_cleared,
-            "red_written": red_written,
-            "message": "Бронь успешно отменена"
-        }
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "Прямая отмена отключена. Создайте заявку на отмену и дождитесь одобрения администратора.",
+            },
+        )
         
     except Exception as e:
         print(f"❌ Ошибка отмены брони: {e}")
@@ -1431,193 +1539,7 @@ async def get_all_bookings(
 # -----------------------------------------------------------------------------
 # ADMIN REQUESTS (pending cancel/reschedule)
 # -----------------------------------------------------------------------------
-
-@app.get("/api/admin/requests")
-async def admin_requests():
-    try:
-        pending = await get_pending_requests()
-        result = []
-        for req in pending:
-            booking = await get_booking_by_id(req.booking_id)
-            if not booking:
-                continue
-            # group_members теперь автоматически десериализуется SQLAlchemy (тип JSON)
-            group_members = booking.group_members if booking.group_members else []
-            result.append({
-                "id": req.id,
-                "booking_id": booking.id,
-                "request_type": req.request_type,
-                "status": req.status,
-                "created_at": req.created_at.isoformat() if req.created_at else None,
-                "initiator_id": req.initiator_id,
-                "comment": req.comment,
-                "booking": {
-                    "package_name": booking.package_name,
-                    "sheet_name": booking.sheet_name,
-                    "table_id": booking.table_id,
-                    "sheet_row_number": booking.sheet_row_number,
-                    "guest_last_name": booking.guest_last_name,
-                    "guest_first_name": booking.guest_first_name,
-                    "client_phone": booking.client_phone,
-                    "placement_type": booking.placement_type,
-                    "room_type": booking.room_type,
-                    "meal_type": booking.meal_type,
-                    "price": booking.price,
-                    "amount_paid": booking.amount_paid,
-                    "region": booking.region,
-                    "departure_city": booking.departure_city,
-                    "source": booking.source,
-                    "comment": booking.comment,
-                    "manager_name_text": booking.manager_name_text,
-                    "group_members": group_members
-                }
-            })
-        return {"ok": True, "data": result}
-    except Exception as e:
-        print(f"❌ Ошибка /api/admin/requests: {e}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
-
-
-@app.post("/api/admin/requests/{req_id}/approve")
-async def admin_request_approve(req_id: int):
-    try:
-        req = await get_approval_request(req_id)
-        if not req or req.status != "pending":
-            return JSONResponse(status_code=404, content={"ok": False, "error": "not found"})
-        booking = await get_booking_by_id(req.booking_id)
-        if not booking:
-            return JSONResponse(status_code=404, content={"ok": False, "error": "booking not found"})
-
-        if req.request_type == "cancel":
-            # Выполняем отмену
-            sheets_cleared = False
-            if booking.sheet_row_number and booking.table_id and booking.sheet_name:
-                sheets_cleared = await clear_booking_in_sheets(
-                    booking.table_id,
-                    booking.sheet_name,
-                    booking.sheet_row_number,
-                    booking.package_name
-                )
-            red_written = False
-            if booking.table_id and booking.sheet_name and booking.package_name:
-                guest_name = f"{booking.guest_last_name} {booking.guest_first_name}"
-                red_written = await write_cancelled_booking_red(
-                    booking.table_id,
-                    booking.sheet_name,
-                    booking.package_name,
-                    guest_name
-                )
-            await mark_booking_cancelled(booking.id)
-            await update_approval_status(req_id, "approved")
-            return {"ok": True, "status": "cancelled", "sheets_cleared": sheets_cleared, "red_written": red_written}
-
-        elif req.request_type == "reschedule":
-            # comment old:<id>
-            old_id = None
-            if req.comment and req.comment.startswith("old:"):
-                try:
-                    old_id = int(req.comment.split("old:")[1])
-                except:
-                    old_id = None
-            old_booking = await get_booking_by_id(old_id) if old_id else None
-
-            # Запись новой брони
-            common_data = {
-                'table_id': booking.table_id,
-                'sheet_name': booking.sheet_name,
-                'package_name': booking.package_name,
-                'room_type': booking.room_type,
-                'meal_type': booking.meal_type,
-                'price': booking.price,
-                'amount_paid': booking.amount_paid,
-                'exchange_rate': booking.exchange_rate,
-                'discount': booking.discount,
-                'contract_number': booking.contract_number,
-                'region': booking.region,
-                'departure_city': booking.departure_city,
-                'source': booking.source,
-                'comment': booking.comment,
-                'manager_name_text': booking.manager_name_text,
-                'train': booking.train,
-                'visa_status': booking.visa_status,
-                'avia': booking.avia,
-            }
-            person = {
-                "Last Name": booking.guest_last_name,
-                "First Name": booking.guest_first_name,
-                "Gender": booking.gender,
-                "Date of Birth": booking.date_of_birth,
-                "Document Number": booking.passport_num,
-                "Document Expiration": booking.passport_expiry,
-                "IIN": booking.guest_iin,
-                "client_phone": booking.client_phone,
-                "passport_image_path": booking.passport_image_path
-            }
-            saved_rows = await save_group_booking([person], common_data, booking.placement_type or 'separate')
-            if saved_rows:
-                await update_booking_row(booking.id, saved_rows[0])
-                await update_booking_fields(booking.id, {"status": "new"})
-            else:
-                return JSONResponse(status_code=500, content={"ok": False, "error": "sheet write failed"})
-
-            # Старая бронь
-            if old_booking:
-                if old_booking.sheet_row_number and old_booking.table_id and old_booking.sheet_name:
-                    try:
-                        await clear_booking_in_sheets(old_booking.table_id, old_booking.sheet_name, old_booking.sheet_row_number, old_booking.package_name)
-                    except:
-                        pass
-                try:
-                    guest_name = f"{old_booking.guest_last_name} {old_booking.guest_first_name}"
-                    await write_rescheduled_booking_red(old_booking.table_id, old_booking.sheet_name, old_booking.package_name, guest_name)
-                except:
-                    pass
-                await mark_booking_rescheduled(old_booking.id, comment=f"Перенесено в #{booking.id}")
-
-            await update_approval_status(req_id, "approved")
-            return {"ok": True, "status": "rescheduled", "saved_rows": saved_rows}
-
-        else:
-            return JSONResponse(status_code=400, content={"ok": False, "error": "unknown type"})
-    except Exception as e:
-        print(f"❌ Ошибка approve: {e}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
-
-
-@app.post("/api/admin/requests/{req_id}/reject")
-async def admin_request_reject(req_id: int):
-    try:
-        req = await get_approval_request(req_id)
-        if not req or req.status != "pending":
-            return JSONResponse(status_code=404, content={"ok": False, "error": "not found"})
-        booking = await get_booking_by_id(req.booking_id)
-        if req.request_type == "reschedule":
-            old_id = None
-            if req.comment and req.comment.startswith("old:"):
-                try:
-                    old_id = int(req.comment.split("old:")[1])
-                except:
-                    old_id = None
-            if booking:
-                await update_booking_fields(booking.id, {"status": "cancelled"})
-            if old_id:
-                await update_booking_fields(old_id, {"status": "new"})
-        else:
-            # cancel reject -> вернуть new
-            if booking:
-                await update_booking_fields(booking.id, {"status": "new"})
-        await update_approval_status(req_id, "rejected")
-        return {"ok": True, "status": "rejected"}
-    except Exception as e:
-        print(f"❌ Ошибка reject: {e}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
-
+# Вынесено в `bull_project/bull_bot/api/routes/admin_requests.py`
 
 # -----------------------------------------------------------------------------
 # CARE DEPARTMENT ENDPOINTS (Отдел Заботы)
@@ -1855,6 +1777,8 @@ async def get_passport_pdf(booking_id: int):
                 status_code=404,
                 content={"ok": False, "error": "No passport image for this booking"}
             )
+
+        passport_path = make_abs_passport_path(passport_path)
 
         # Проверяем существование файла
         if not os.path.exists(passport_path):
@@ -2379,48 +2303,8 @@ async def catch_all(full_path: str):
     return {"error": "Not found"}
 
 
-# Временно отключено - webhook_notifier не в репозитории
-# @app.post("/api/webhook/test")
-# async def test_webhook():
-#     """
-#     Тестовый endpoint для проверки работы webhook уведомлений
-#     """
-#     from bull_project.bull_bot.core.webhook_notifier import webhook_notifier
-#
-#     try:
-#         success = await webhook_notifier.send_test_notification()
-#
-#         if success:
-#             return {
-#                 "ok": True,
-#                 "message": "Тестовое уведомление отправлено успешно",
-#                 "webhook_url": webhook_notifier.webhook_url
-#             }
-#         else:
-#             return JSONResponse(
-#                 status_code=500,
-#                 content={
-#                     "ok": False,
-#                     "error": "Не удалось отправить тестовое уведомление",
-#                     "webhook_enabled": webhook_notifier.enabled,
-#                     "webhook_url": webhook_notifier.webhook_url if webhook_notifier.enabled else "не настроен"
-#                 }
-#             )
-#
-#     except Exception as e:
-#         print(f"❌ Ошибка тестового webhook: {e}")
-#         import traceback
-#         traceback.print_exc()
-#         return JSONResponse(
-#             status_code=500,
-#             content={"ok": False, "error": str(e)}
-#         )
-
-
-# ============= КОНЕЦ =============
-
-# Запуск при старте файла
 if __name__ == "__main__":
+    import uvicorn
     # Koyeb/Render/etc. прокидывают порт через env, поэтому пробуем PORT/PORT0
     port = int(os.getenv("PORT") or os.getenv("PORT0") or "8000")
     uvicorn.run(
