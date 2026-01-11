@@ -63,6 +63,7 @@ from bull_project.bull_bot.core.google_sheets.writer import (
     save_group_booking
 )
 from bull_project.bull_bot.config.constants import ABS_UPLOADS_DIR
+from bull_project.bull_bot.core.passport_storage import resolve_passport_file_path
 from bull_project.bull_bot.api.routes.rooms import router as rooms_router
 from bull_project.bull_bot.api.routes.admin_requests import router as admin_requests_router
 # uploads dir is shared via volume on API service
@@ -246,9 +247,17 @@ async def resolve_passport_path(booking) -> Optional[str]:
 
 def make_abs_passport_path(path: Optional[str]) -> Optional[str]:
     """
+    DEPRECATED: Use resolve_passport_file_path() from passport_storage.py instead.
+
     Приводит путь к паспорту к абсолютному:
     - если уже абсолютный – возвращаем как есть;
     - если относительный – добавляем ABS_UPLOADS_DIR.
+
+    NOTE: This function does NOT check if the file exists.
+    resolve_passport_file_path() is preferred as it:
+    - Checks file existence
+    - Tries multiple resolution strategies
+    - Returns None if file not found
     """
     if not path:
         return None
@@ -1698,14 +1707,17 @@ async def get_passport_photo(booking_id: int):
                 content={"ok": False, "error": "No passport image for this booking"}
             )
 
-        passport_path = make_abs_passport_path(passport_path)
+        # Резолвим путь к паспорту (поддерживает и абсолютные, и относительные пути)
+        resolved_path = resolve_passport_file_path(passport_path)
 
         # Проверяем существование файла
-        if not os.path.exists(passport_path):
+        if not resolved_path or not os.path.exists(resolved_path):
             return JSONResponse(
                 status_code=404,
-                content={"ok": False, "error": f"Passport image file not found: {passport_path}"}
+                content={"ok": False, "error": f"Passport image file not found. Original path: {passport_path}, tried to resolve to: {resolved_path or 'N/A'}"}
             )
+
+        passport_path = resolved_path
 
         # Определяем тип файла по расширению
         file_ext = os.path.splitext(passport_path)[1].lower()
@@ -1778,14 +1790,17 @@ async def get_passport_pdf(booking_id: int):
                 content={"ok": False, "error": "No passport image for this booking"}
             )
 
-        passport_path = make_abs_passport_path(passport_path)
+        # Резолвим путь к паспорту (поддерживает и абсолютные, и относительные пути)
+        resolved_path = resolve_passport_file_path(passport_path)
 
         # Проверяем существование файла
-        if not os.path.exists(passport_path):
+        if not resolved_path or not os.path.exists(resolved_path):
             return JSONResponse(
                 status_code=404,
-                content={"ok": False, "error": f"Passport image file not found: {passport_path}"}
+                content={"ok": False, "error": f"Passport image file not found. Original path: {passport_path}, tried to resolve to: {resolved_path or 'N/A'}"}
             )
+
+        passport_path = resolved_path
 
         # Если уже PDF - отдаем как есть
         if passport_path.lower().endswith('.pdf'):
