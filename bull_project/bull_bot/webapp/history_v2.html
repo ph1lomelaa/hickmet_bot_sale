@@ -1098,22 +1098,21 @@
         const targetId = bookingId || selectedBooking?.id;
         if (!targetId) return;
         try {
-            const response = await fetch(`${API_URL}/api/bookings/${targetId}/cancel`, {
-                method: 'POST',
-                headers: {
-                    "Content-Type": "application/json",
-                    "ngrok-skip-browser-warning": "1"
-                }
-            });
-            const data = await response.json();
-            if (data.ok) {
-                alert('✅ Бронь отменена');
-                closeModal();
-                const user = tg.initDataUnsafe?.user;
-                await loadBookings(urlManagerId || user?.id || 0);
-            } else {
-                alert('❌ Ошибка отмены: ' + (data.error || ''));
+            const comment = prompt('Комментарий для отмены (обязательно):', '') || '';
+            if (!comment.trim()) {
+                alert('❌ Нужен комментарий для заявки на отмену.');
+                return;
             }
+
+            // Отмена только через админское подтверждение: отправляем заявку в бот
+            tg.sendData(JSON.stringify({
+                action: "cancel_request",
+                booking_id: targetId,
+                comment: comment.trim()
+            }));
+
+            alert('⏳ Заявка на отмену отправлена администратору. Ожидайте подтверждения.');
+            closeModal();
         } catch (e) {
             alert('❌ Ошибка сети: ' + e);
         }
@@ -1123,23 +1122,51 @@
         const booking = allBookings.find(b => b.id === bookingId);
         if (!booking) return;
 
-        const pilgrimData = {
-            first_name: booking.guest_first_name,
-            last_name: booking.guest_last_name,
-            phone: booking.client_phone,
-            passport_num: booking.passport_num,
-            date_of_birth: booking.date_of_birth,
-            gender: booking.gender,
-            passport_expiry: booking.passport_expiry,
-            iin: booking.guest_iin
-        };
+        const comment = prompt('Комментарий для переноса (обязательно):', '') || '';
+        if (!comment.trim()) {
+            alert('❌ Нужен комментарий для заявки на перенос.');
+            return;
+        }
 
-        localStorage.setItem('reschedule_booking_id', booking.id);
-        localStorage.setItem('reschedule_data', JSON.stringify(pilgrimData));
-        localStorage.setItem('is_reschedule', 'true');
+        // Перенос через WebApp: создаём заявку (pending) после заполнения формы
+        // Комментарий сохраняем, чтобы подставить в форме
+        try {
+            localStorage.setItem('mode', 'reschedule');
+            localStorage.setItem('old_booking_id', String(booking.id));
+            localStorage.setItem('reschedule_comment', comment.trim());
+            localStorage.setItem('is_reschedule', 'true');
+            localStorage.setItem('reschedule_data', JSON.stringify({
+                last_name: booking.guest_last_name || '-',
+                first_name: booking.guest_first_name || '-',
+                phone: booking.client_phone || '-',
+                passport_num: booking.passport_num || '-',
+                date_of_birth: booking.date_of_birth || '-',
+                gender: booking.gender || 'M',
+                passport_expiry: booking.passport_expiry || '-',
+                iin: booking.guest_iin || '-',
+                passport_image_path: booking.passport_image_path || null
+            }));
+        } catch (e) {}
 
-        // Используем существующую форму бронирования
-        window.location.href = 'index.html';
+        const pilgrims = [{
+            last_name: booking.guest_last_name || '-',
+            first_name: booking.guest_first_name || '-',
+            phone: booking.client_phone || '-',
+            passport_num: booking.passport_num || '-',
+            date_of_birth: booking.date_of_birth || '-',
+            gender: booking.gender || 'M',
+            passport_expiry: booking.passport_expiry || '-',
+            iin: booking.guest_iin || '-',
+            passport_image_path: booking.passport_image_path || null
+        }];
+
+        const qs = new URLSearchParams({
+            mode: 'reschedule',
+            old_booking_id: String(booking.id),
+            reschedule_comment: comment.trim(),
+            pilgrims: JSON.stringify(pilgrims)
+        });
+        window.location.href = `index.html?${qs.toString()}`;
     }
 
     function rescheduleBooking() {

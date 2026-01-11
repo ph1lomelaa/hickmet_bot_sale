@@ -86,8 +86,8 @@ def get_packages_from_sheet(spreadsheet_id: str, sheet_name: str) -> dict:
         ss = client.open_by_key(spreadsheet_id)
         ws = _get_worksheet_by_title(ss, sheet_name)
 
-        # ОПТИМИЗАЦИЯ: Расширили до D чтобы видеть "Type of room"
-        data = ws.get('A1:D200')
+        # ОПТИМИЗАЦИЯ: Расширили до F чтобы захватить названия пакетов в разных колонках
+        data = ws.get('A1:F200')
 
         packages = {}
 
@@ -95,7 +95,8 @@ def get_packages_from_sheet(spreadsheet_id: str, sheet_name: str) -> dict:
         package_keywords = [
             "niyet", "hikma", "izi", "4u", "premium", "econom",
             "стандарт", "эконом", "comfort",
-            "ramadan", "рамадан", "ramazan", "ramad"
+            "ramadan", "рамадан", "ramazan", "ramad",
+            "park", "regis", "ala", "jed"  # Добавили новые отели
         ]
 
         for idx, row in enumerate(data, start=1):

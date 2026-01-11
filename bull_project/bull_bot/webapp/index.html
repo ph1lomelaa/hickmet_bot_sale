@@ -1057,10 +1057,11 @@
     const pRaw = urlParams.get('pilgrims');
     const fillModeParam = (urlParams.get('fill_mode') || '').toLowerCase();
     const countParam = parseInt((urlParams.get('count') || '').trim() || '0', 10);
-    const managerParam = urlParams.get('manager_name_text');
-    const modeParam = urlParams.get('mode');
-    const editBookingId = urlParams.get('booking_id');
-    const oldBookingId = urlParams.get('old_booking_id');
+	    const managerParam = urlParams.get('manager_name_text');
+	    const modeParam = urlParams.get('mode');
+	    const editBookingId = urlParams.get('booking_id');
+	    const oldBookingId = urlParams.get('old_booking_id');
+	    const rescheduleCommentParam = urlParams.get('reschedule_comment');
 
     console.log("📥 URL параметры:");
     console.log("   pilgrims:", pRaw ? "есть данные" : "нет");
@@ -1068,9 +1069,14 @@
     console.log("   booking_id:", editBookingId);
     console.log("   old_booking_id:", oldBookingId);
 
-    currentMode = modeParam || localStorage.getItem('mode') || 'create';
-    currentBookingId = editBookingId || localStorage.getItem('edit_booking_id') || null;
-    let currentOldBookingId = oldBookingId || localStorage.getItem('old_booking_id') || null;
+	    currentMode = modeParam || localStorage.getItem('mode') || 'create';
+	    currentBookingId = editBookingId || localStorage.getItem('edit_booking_id') || null;
+	    let currentOldBookingId = oldBookingId || localStorage.getItem('old_booking_id') || null;
+
+	    // Если комментарий переноса передали через URL — сохраняем (чтобы не потерялся при редиректах)
+	    if (rescheduleCommentParam) {
+	        localStorage.setItem('reschedule_comment', rescheduleCommentParam);
+	    }
 
     // Предзаполняем менеджера, если его передали в URL (например при переносе)
     if (managerParam) {
@@ -1485,8 +1491,17 @@
         renderFilesList();
     }
 
-    // Показываем предупреждение и фиксируем поля при редактировании
-    applyEditLock();
+	    // Показываем предупреждение и фиксируем поля при редактировании
+	    applyEditLock();
+
+	    // В режиме переноса: подставляем комментарий (если есть)
+	    if (currentMode === 'reschedule') {
+	        const savedRescheduleComment = localStorage.getItem('reschedule_comment') || '';
+	        const commentEl = document.getElementById('comment');
+	        if (commentEl && savedRescheduleComment.trim() && !commentEl.value.trim()) {
+	            commentEl.value = `ПЕРЕНОС: ${savedRescheduleComment.trim()}`;
+	        }
+	    }
 
     // Если режим редактирования - загружаем полные данные брони из API
     if (currentMode === 'edit' && currentBookingId) {
@@ -1813,7 +1828,8 @@
             package_name: document.getElementById('pkg_name').value,
             count: pilgrimsData.length,
             room_type: document.getElementById('room_type').value,
-            gender: pilgrimsData[0]?.gender || 'M'
+            // При ручном подселении (выбор комнаты) НЕ фильтруем по полу
+            gender: ''
         });
 
         try {
@@ -1821,7 +1837,9 @@
             const res = await r.json();
             if (res.found && res.rooms.length > 0) {
                 sel.innerHTML = res.rooms.map(rm => {
-                    const icon = rm.gender === 'F' ? '🚺' : '🚹';
+                    const icon = rm.gender === 'F'
+                        ? '🚺'
+                        : (rm.gender === 'M' ? '🚹' : '⚪');
                     const label = rm.label || `${rm.type} · ${rm.last_guest || 'Свободно'} (Свободно: ${rm.free})`;
                     return `<option value="${rm.row}">${icon} ${label} [Строка: ${rm.row}]</option>`;
                 }).join('');
@@ -1902,31 +1920,41 @@
             // Определяем endpoint и метод в зависимости от режима
             let endpoint, method, btnText;
 
-            if (currentMode === 'edit' && currentBookingId) {
-                // Режим редактирования - обновляем существующую бронь
-                endpoint = `${API_URL}/api/bookings/${currentBookingId}`;
-                method = "PATCH";
-                btnText = '<span class="icon">⏳</span> Сохраняю изменения...';
-                console.log("✏️ РЕДАКТИРОВАНИЕ брони #" + currentBookingId);
-            } else {
-                // Режим создания или переноса - создаем новую бронь
-                endpoint = `${API_URL}/api/bookings/submit`;
-                method = "POST";
-                btnText = '<span class="icon">⏳</span> Записываю...';
+	            if (currentMode === 'edit' && currentBookingId) {
+	                // Режим редактирования - обновляем существующую бронь
+	                endpoint = `${API_URL}/api/bookings/${currentBookingId}`;
+	                method = "PATCH";
+	                btnText = '<span class="icon">⏳</span> Сохраняю изменения...';
+	                console.log("✏️ РЕДАКТИРОВАНИЕ брони #" + currentBookingId);
+	            } else if (currentMode === 'reschedule') {
+	                // Режим переноса: создаём заявку на перенос (без записи в Google Sheets)
+	                endpoint = `${API_URL}/api/bookings/reschedule/request`;
+	                method = "POST";
+	                btnText = '<span class="icon">⏳</span> Отправляю заявку на перенос...';
+	                console.log("♻️ ЗАЯВКА НА ПЕРЕНОС (через админа)");
+	            } else {
+	                // Режим создания или переноса - создаем новую бронь
+	                endpoint = `${API_URL}/api/bookings/submit`;
+	                method = "POST";
+	                btnText = '<span class="icon">⏳</span> Записываю...';
 
                 if (currentMode === 'reschedule' && currentOldBookingId) {
                     console.log("♻️ ПЕРЕНОС брони (старая #" + currentOldBookingId + ")");
                 } else {
                     console.log("➕ СОЗДАНИЕ новой брони");
                 }
-            }
+	            }
 
-            btn.innerHTML = btnText;
+	            btn.innerHTML = btnText;
 
-            const res = await fetch(endpoint, {
-                method,
-                headers: {
-                    "Content-Type": "application/json",
+	            if (currentMode === 'reschedule') {
+	                data.old_booking_id = currentOldBookingId ? parseInt(currentOldBookingId, 10) : null;
+	            }
+
+	            const res = await fetch(endpoint, {
+	                method,
+	                headers: {
+	                    "Content-Type": "application/json",
                     "ngrok-skip-browser-warning": "1"
                 },
                 body: JSON.stringify(data)
@@ -1942,23 +1970,32 @@
                 return;
             }
 
-            // Показываем сообщение об успехе в зависимости от режима
-            let successMessage;
-            if (currentMode === 'edit') {
-                successMessage = "✅ Изменения успешно сохранены!";
-            } else if (currentMode === 'reschedule') {
-                successMessage = "✅ Перенос завершен успешно!";
-            } else {
-                successMessage = "✅ Бронь успешно размещена!";
-            }
-            alert(successMessage);
+	            // Показываем сообщение об успехе в зависимости от режима
+	            let successMessage;
+	            if (currentMode === 'edit') {
+	                successMessage = "✅ Изменения успешно сохранены!";
+	            } else if (currentMode === 'reschedule') {
+	                successMessage = "✅ Заявка на перенос отправлена администратору. Ожидайте подтверждения.";
+	            } else {
+	                successMessage = "✅ Бронь успешно размещена!";
+	            }
+	            alert(successMessage);
 
-            // Отправляем событие в Telegram для возврата в главное меню
-            tg.sendData(JSON.stringify({
-                action: "booking_completed",
-                mode: currentMode,
-                saved_rows: json.saved_rows || []
-            }));
+	            // Отправляем событие в Telegram для возврата в главное меню
+	            if (currentMode === 'reschedule') {
+	                tg.sendData(JSON.stringify({
+	                    action: "booking_completed",
+	                    mode: "reschedule_request",
+	                    request_id: json.request_id || null,
+	                    booking_id: json.booking_id || null
+	                }));
+	            } else {
+	                tg.sendData(JSON.stringify({
+	                    action: "booking_completed",
+	                    mode: currentMode,
+	                    saved_rows: json.saved_rows || []
+	                }));
+	            }
 
             // Закрываем WebApp
             tg.close();

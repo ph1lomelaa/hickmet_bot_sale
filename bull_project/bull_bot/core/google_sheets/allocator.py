@@ -110,6 +110,58 @@ def find_headers_extended(row):
 
     return None
 
+
+def _is_probable_room_data_row(row) -> bool:
+    """
+    Фолбэк: некоторые таблицы/пакеты содержат данные без строки заголовков.
+    Тогда пытаемся распознать "первую строку комнаты" по паттерну:
+    [№] [тип комнаты] [питание] [Фамилия] [Имя] [M/F] ...
+    """
+    if not row or len(row) < 6:
+        return False
+    c0 = normalize(row[0])
+    c1 = normalize(row[1])
+    c2 = normalize(row[2])
+    c5 = normalize(row[5])
+
+    if not c0 or not c0[0].isdigit():
+        return False
+
+    room_kw = ("quad", "quadro", "double", "dbl", "triple", "trpl", "single", "sgl", "1", "2", "3", "4")
+    if not any(k in c1 for k in room_kw):
+        return False
+
+    meal_kw = ("hb", "bb", "fb", "ro", "inf", "chd")
+    if c2 and not any(k == c2 or k in c2 for k in meal_kw):
+        return False
+
+    if c5 not in ("m", "f"):
+        return False
+
+    return True
+
+
+def _fallback_cols_for_room_table(row) -> dict:
+    """
+    Дефолтная раскладка колонок, когда заголовков нет (частый кейс в Google Sheets).
+    """
+    # [0]=№, [1]=room, [2]=meal, [3]=last, [4]=first, [5]=gender, [6]=dob, [7]=doc_num, [8]=doc_exp, [9]=iin
+    cols = {
+        "num": 0,
+        "room": 1,
+        "meal": 2,
+        "last_name": 3,
+        "first_name": 4,
+        "gender": 5,
+        "dob": 6,
+        "doc_num": 7,
+        "doc_exp": 8,
+        "iin": 9,
+    }
+    # если строка короче — безопасно оставим только то, что точно есть
+    max_idx = len(row) - 1
+    return {k: v for k, v in cols.items() if v <= max_idx}
+
 def get_package_block(all_rows, pkg_name):
     """Получение границ блока пакета"""
     start_row = find_package_row(all_rows, pkg_name)
@@ -128,7 +180,16 @@ def get_package_block(all_rows, pkg_name):
             print(f"✅ Заголовки найдены в строке {r+1}")
             break
 
-    if not header_row:
+    if header_row is None:
+        # Фолбэк: если заголовков нет — пробуем определить колонки по первой строке данных
+        for r in range(start_row + 1, min(start_row + 40, len(all_rows))):
+            if _is_probable_room_data_row(all_rows[r]):
+                header_row = r - 1  # чтобы данные начинались с header_row+1
+                cols = _fallback_cols_for_room_table(all_rows[r])
+                print(f"✅ Заголовки не найдены — использую фолбэк по данным (первая строка: {r+1})")
+                break
+
+    if header_row is None or not cols:
         print(f"❌ Заголовки не найдены для пакета '{pkg_name}'")
         return None, None, None
 
@@ -758,7 +819,7 @@ def get_open_rooms_for_manual_selection(all_rows, pkg_name, needed_count=1, need
     print(f"{'='*60}\n")
 
     header_row, end_row, cols = get_package_block(all_rows, pkg_name)
-    if not header_row:
+    if header_row is None:
         print(f"❌ Пакетный блок не найден!")
         return []
 

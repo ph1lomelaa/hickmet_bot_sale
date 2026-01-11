@@ -706,40 +706,99 @@ async def handle_webapp_data(message: Message, state: FSMContext):
     import json
     form = json.loads(message.web_app_data.data)  # данные из WebApp
 
+    # --------------------
+    # Заявки на отмену/перенос (только через админа)
+    # --------------------
+    action = form.get("action")
+    if action in ("cancel_request", "reschedule_request"):
+        booking_id = int(form.get("booking_id") or 0)
+        comment = (form.get("comment") or "").strip()
+        if booking_id <= 0:
+            await message.answer("❌ Не найден ID брони.")
+            return
+        if not comment:
+            await message.answer("❌ Нужен комментарий для заявки.")
+            return
+
+        b = await get_booking_by_id(booking_id)
+        if not b:
+            await message.answer("❌ Бронь не найдена.")
+            return
+
+        # Только менеджеры/админы могут создавать заявки
+        role = await get_user_role(message.from_user.id)
+        if role not in ("manager", "admin"):
+            await message.answer("❌ У вас нет доступа к этой операции.")
+            return
+
+        if action == "cancel_request":
+            req_id = await create_approval_request(b.id, "cancel", message.from_user.id, comment=comment)
+            await update_booking_fields(b.id, {"status": "pending_cancel"})
+            await message.answer(f"⏳ Заявка на отмену брони #{b.id} отправлена администратору.\nКомментарий: {comment}")
+
+            # Уведомляем админов в Telegram
+            admin_ids = await get_admin_ids()
+            for admin_id in admin_ids:
+                settings = await get_admin_settings(admin_id)
+                if not settings or not settings.notify_cancel:
+                    continue
+                text = _format_admin_booking(
+                    b,
+                    "🛑 Запрос на отмену",
+                    extra=f"Инициатор: {message.from_user.id}\nКомментарий: {comment}"
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"admin_cancel_ok:{req_id}"),
+                        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_cancel_reject:{req_id}")
+                    ]
+                ])
+                with suppress(Exception):
+                    await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
+
+            return
+
+        # reschedule_request (устаревший путь): перенос теперь создаёт заявку через WebApp
+        await message.answer(
+            "♻️ Перенос оформляется через WebApp: откройте бронь в истории и нажмите «Перенести», "
+            "затем заполните форму — заявка уйдёт администратору на подтверждение."
+        )
+        return
+
     # Проверяем, это новая автономная Web App или старая форма
     if form.get("action") == "booking_completed":
         # Это событие от новой Web App (index.html)
 
-        # 🔥 ИСПРАВЛЕНИЕ: Проверяем режим переноса и отменяем старую бронь
-        data = await state.get_data()
         mode = form.get("mode")
-        old_booking_id = data.get('old_booking_id')
-
         success_msg = "✅ Бронь успешно создана!"
 
-        if mode == "reschedule" and old_booking_id:
-            print(f"\n♻️ ПЕРЕНОС: Отмена старой брони #{old_booking_id} (через WebApp)")
-            try:
-                old_booking = await get_booking_by_id(old_booking_id)
-                if old_booking:
-                    # 1. Очищаем старую строку в Google Sheets
-                    if old_booking.sheet_row_number and old_booking.table_id and old_booking.sheet_name:
-                        print(f"📝 Очистка строки {old_booking.sheet_row_number} из старой таблицы")
-                        await clear_booking_in_sheets(
-                            old_booking.table_id,
-                            old_booking.sheet_name,
-                            old_booking.sheet_row_number,
-                            old_booking.package_name
+        if mode == "reschedule_request":
+            # Заявка на перенос создана на API, теперь уведомляем админов в Telegram
+            req_id = int(form.get("request_id") or 0)
+            booking_id = int(form.get("booking_id") or 0)
+            if req_id > 0 and booking_id > 0:
+                b = await get_booking_by_id(booking_id)
+                if b:
+                    admin_ids = await get_admin_ids()
+                    for admin_id in admin_ids:
+                        settings = await get_admin_settings(admin_id)
+                        if not settings or not settings.notify_reschedule:
+                            continue
+                        text = _format_admin_booking(
+                            b,
+                            "♻️ Запрос на перенос",
+                            extra=f"Заявка #{req_id}\nИнициатор: {message.from_user.id}"
                         )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [
+                                InlineKeyboardButton(text="✅ Подтвердить перенос", callback_data=f"admin_resched_ok:{req_id}"),
+                                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_resched_reject:{req_id}")
+                            ]
+                        ])
+                        with suppress(Exception):
+                            await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
+            success_msg = "✅ Заявка на перенос отправлена администратору. Ожидайте подтверждения."
 
-                    # 2. Помечаем старую бронь как отмененную в БД
-                    await mark_booking_cancelled(old_booking_id)
-                    print(f"✅ Старая бронь #{old_booking_id} отменена")
-                    success_msg = f"✅ Перенос завершен успешно!\n• Старая бронь #{old_booking_id} отменена"
-            except Exception as e:
-                print(f"⚠️ Ошибка при отмене старой брони: {e}")
-                import traceback
-                traceback.print_exc()
         elif mode == "edit":
             success_msg = "✅ Изменения успешно сохранены!"
 
@@ -915,7 +974,73 @@ async def finalize_booking_integrated(message: Message, state: FSMContext, pilgr
 
         print(f"👥 Группа сформирована: {group_members}")
 
-        # --- 2. 🔥 СНАЧАЛА запись в Google Sheets ---
+        # Определяем режим (перенос/обычный)
+        data = await state.get_data()
+        is_reschedule = data.get('is_reschedule', False)
+        old_booking_id = data.get('old_booking_id')
+
+        # --- 2. Перенос: только заявка + одобрение админа (без записи в Sheets) ---
+        if is_reschedule:
+            if len(db_records) != 1 or len(sheets_pilgrims) != 1:
+                user = await get_user_by_id(message.from_user.id)
+                await status.delete()
+                await message.answer(
+                    "❌ Перенос сейчас поддерживается только для 1 паломника (одна бронь).",
+                    reply_markup=get_menu_by_role(user.role) if user else manager_kb(),
+                )
+                await state.clear()
+                return
+            if not old_booking_id:
+                user = await get_user_by_id(message.from_user.id)
+                await status.delete()
+                await message.answer(
+                    "❌ Не найден ID старой брони для переноса. Начните перенос заново из истории.",
+                    reply_markup=get_menu_by_role(user.role) if user else manager_kb(),
+                )
+                await state.clear()
+                return
+
+            # Создаём НОВУЮ бронь в БД (pending_reschedule) и заявку на одобрение
+            rec = db_records[0]
+            rec["status"] = "pending_reschedule"
+            rec["sheet_row_number"] = None
+            new_booking_id = await add_booking_to_db(rec, message.from_user.id)
+            req_id = await create_approval_request(new_booking_id, "reschedule", message.from_user.id, comment=f"old:{old_booking_id}")
+            await update_booking_fields(old_booking_id, {"status": "pending_reschedule"})
+
+            # Уведомляем админов
+            b = await get_booking_by_id(new_booking_id)
+            admin_ids = await get_admin_ids()
+            for admin_id in admin_ids:
+                settings = await get_admin_settings(admin_id)
+                if not settings or not settings.notify_reschedule:
+                    continue
+                text = _format_admin_booking(
+                    b,
+                    "♻️ Запрос на перенос",
+                    extra=f"Старый #{old_booking_id} → Новый #{new_booking_id}\nИнициатор: {message.from_user.id}"
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="✅ Подтвердить перенос", callback_data=f"admin_resched_ok:{req_id}"),
+                        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_resched_reject:{req_id}")
+                    ]
+                ])
+                with suppress(Exception):
+                    await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
+
+            await status.delete()
+            user = await get_user_by_id(message.from_user.id)
+            await message.answer(
+                f"✅ Заявка на перенос отправлена администратору.\n"
+                f"Старая бронь #{old_booking_id} → новая #{new_booking_id}\n"
+                f"Ожидайте подтверждения.",
+                reply_markup=get_menu_by_role(user.role) if user else manager_kb(),
+            )
+            await state.clear()
+            return
+
+        # --- 3. 🔥 СНАЧАЛА запись в Google Sheets ---
         print(f"\n📊 Запись в Google Sheets...")
         saved_rows = await save_group_booking(
             sheets_pilgrims,               # group_data с паспортными данными
@@ -954,52 +1079,20 @@ async def finalize_booking_integrated(message: Message, state: FSMContext, pilgr
             db_ids.append(booking_id)
             print(f"✅ ID записи в БД: {booking_id}")
 
-        # 🔥 ИСПРАВЛЕНИЕ: Обработка режима переноса - отменяем старую бронь
-        data = await state.get_data()
-        is_reschedule = data.get('is_reschedule', False)
-        old_booking_id = data.get('old_booking_id')
-
         # Отправляем уведомления админам о новых бронях (только если это не перенос)
-        if not is_reschedule:
-            for booking_id in db_ids:
-                try:
-                    await notify_admins_new_booking(booking_id)
-                except Exception as e:
-                    print(f"⚠️ Не удалось отправить уведомление о новой брони #{booking_id}: {e}")
-
-        if is_reschedule and old_booking_id:
-            print(f"\n♻️ ПЕРЕНОС: Отмена старой брони #{old_booking_id}")
+        for booking_id in db_ids:
             try:
-                old_booking = await get_booking_by_id(old_booking_id)
-                if old_booking:
-                    # 1. Очищаем старую строку в Google Sheets
-                    if old_booking.sheet_row_number and old_booking.table_id and old_booking.sheet_name:
-                        print(f"📝 Очистка строки {old_booking.sheet_row_number} из старой таблицы")
-                        await clear_booking_in_sheets(
-                            old_booking.table_id,
-                            old_booking.sheet_name,
-                            old_booking.sheet_row_number,
-                            old_booking.package_name
-                        )
-
-                    # 2. Помечаем старую бронь как отмененную в БД
-                    await mark_booking_cancelled(old_booking_id)
-                    print(f"✅ Старая бронь #{old_booking_id} отменена")
+                await notify_admins_new_booking(booking_id)
             except Exception as e:
-                print(f"⚠️ Ошибка при отмене старой брони: {e}")
-                # Продолжаем даже если отмена не удалась
+                print(f"⚠️ Не удалось отправить уведомление о новой брони #{booking_id}: {e}")
 
         user = await get_user_by_id(message.from_user.id)
         success_msg = "✅ Бронь успешно записана!\n"
-        if is_reschedule:
-            success_msg = "✅ Перенос завершен успешно!\n"
         success_msg += (
             f"• Записано паломников: {len(pilgrims)}\n"
             f"• Строки в таблице: {saved_rows}\n"
             f"• ID записей в БД: {db_ids}"
         )
-        if is_reschedule and old_booking_id:
-            success_msg += f"\n• Старая бронь #{old_booking_id} отменена"
 
         await message.answer(
             success_msg,

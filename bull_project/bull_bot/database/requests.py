@@ -81,6 +81,13 @@ async def get_admin_ids():
 async def get_admin_settings(admin_id: int) -> AdminSettings:
     async with async_session() as session:
         settings = await session.get(AdminSettings, admin_id)
+        # Если настроек нет — считаем, что уведомления включены по умолчанию,
+        # иначе админы никогда не получат уведомления, пока вручную не настроят.
+        if not settings:
+            settings = AdminSettings(admin_id=admin_id, notify_new=1, notify_cancel=1, notify_reschedule=1)
+            session.add(settings)
+            await session.commit()
+            await session.refresh(settings)
         return settings
 
 async def set_admin_settings(admin_id: int, notify_new: bool = None, notify_cancel: bool = None, notify_reschedule: bool = None):
