@@ -598,13 +598,14 @@ async def api_bookings_submit(payload: BookingSubmitIn):
         # Данные для Sheets
         if is_id_card:
             # Для ID card записываем только: имя, фамилию, дату рождения, ИИН, пол
+            # НЕ записываем номер документа ID card
             p_sheet_data = {
                 "Last Name": pilgrim.last_name or "-",
                 "First Name": pilgrim.first_name or "-",
                 "Gender": pilgrim.gender or "M",
                 "Date of Birth": pilgrim.date_of_birth or "-",
-                "Document Number": "-",  # НЕ записываем номер документа
-                "Document Expiration": "-",  # НЕ записываем срок действия
+                "Document Number": "-",  # НЕ записываем номер ID card
+                "Document Expiration": "-",  # НЕ записываем срок действия ID card
                 "IIN": pilgrim.iin or "-",
                 "client_phone": pilgrim.phone or "-",
                 "phone": pilgrim.phone or "-",
@@ -612,30 +613,13 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 "is_infant": pilgrim.is_infant,
                 "is_child": pilgrim.is_child
             }
-        elif passport_warning:
-            # Если есть предупреждение о сроке паспорта - НЕ записываем паспортные данные
-            p_sheet_data = {
-                # Записываем только имя и предупреждение (красным в Sheets это будет)
-                "Last Name": pilgrim.last_name or "-",
-                "First Name": pilgrim.first_name or "-",
-                "Gender": "-",
-                "Date of Birth": "-",
-                "Document Number": "-",
-                "Document Expiration": "-",
-                "IIN": "-",
-                "client_phone": pilgrim.phone or "-",
-                "phone": pilgrim.phone or "-",
-                "manager_name_text": common["manager_name_text"],
-                "is_infant": pilgrim.is_infant,
-                "is_child": pilgrim.is_child
-            }
         else:
-            # Обычный паспорт - записываем все данные
+            # Обычный паспорт - записываем ВСЕ данные, даже если есть предупреждение
+            # Предупреждение сохраняется в БД отдельно, но НЕ должно блокировать размещение
             p_sheet_data = {
-                # Human Readable формат
                 "Last Name": pilgrim.last_name or "-",
                 "First Name": pilgrim.first_name or "-",
-                "Gender": pilgrim.gender or "M",
+                "Gender": pilgrim.gender or "M",  # ✅ ВСЕГДА записываем пол!
                 "Date of Birth": pilgrim.date_of_birth or "-",
                 "Document Number": pilgrim.passport_num or "-",
                 "Document Expiration": pilgrim.passport_expiry or "-",
