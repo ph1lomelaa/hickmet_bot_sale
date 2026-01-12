@@ -66,6 +66,12 @@ from bull_project.bull_bot.config.constants import ABS_UPLOADS_DIR
 from bull_project.bull_bot.core.passport_storage import resolve_passport_file_path
 from bull_project.bull_bot.api.routes.rooms import router as rooms_router
 from bull_project.bull_bot.api.routes.admin_requests import router as admin_requests_router
+from bull_project.bull_bot.core.websocket_manager import (
+    phone_subscribers,
+    admin_request_subscribers,
+    notify_phone_subscribers,
+    notify_admin_request_subscribers,
+)
 # uploads dir is shared via volume on API service
 os.makedirs(ABS_UPLOADS_DIR, exist_ok=True)
 # Инициализация парсера паспортов
@@ -75,9 +81,6 @@ passport_parser = PassportParser(debug=False)
 # FASTAPI НАСТРОЙКА
 # -----------------------------------------------------------------------------
 app = FastAPI()
-
-# WebSocket subscribers для мгновенных уведомлений о новых телефонах
-phone_subscribers: List[WebSocket] = []
 
 app.add_middleware(
     CORSMiddleware,
@@ -117,31 +120,22 @@ async def websocket_phone_updates(websocket: WebSocket):
         phone_subscribers.remove(websocket)
         print(f"📱 WebSocket клиент отключился. Всего подписчиков: {len(phone_subscribers)}")
 
-
-async def notify_phone_subscribers(phone: str, booking_id: int, guest_name: str):
-    """Отправляет уведомление о новом телефоне всем подключенным WebSocket клиентам"""
-    if not phone or phone == "-":
-        return
-
-    message = {
-        "event": "new_phone",
-        "phone": phone,
-        "booking_id": booking_id,
-        "guest_name": guest_name,
-        "timestamp": datetime.now().isoformat()
-    }
-
-    disconnected = []
-    for ws in phone_subscribers:
-        try:
-            await ws.send_json(message)
-            print(f"📱 Отправлен телефон {phone} WebSocket клиенту")
-        except Exception:
-            disconnected.append(ws)
-
-    # Очистка отключенных клиентов
-    for ws in disconnected:
-        phone_subscribers.remove(ws)
+# -----------------------------------------------------------------------------
+# WEBSOCKET: Уведомления админов о новых заявках на отмену/перенос
+# -----------------------------------------------------------------------------
+@app.websocket("/ws/admin-requests")
+async def websocket_admin_requests(websocket: WebSocket):
+    """WebSocket endpoint - админы подключаются для получения уведомлений о заявках"""
+    await websocket.accept()
+    admin_request_subscribers.append(websocket)
+    print(f"🔔 WebSocket админ подключен. Всего подписчиков: {len(admin_request_subscribers)}")
+    try:
+        while True:
+            # Держим соединение открытым
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        admin_request_subscribers.remove(websocket)
+        print(f"🔔 WebSocket админ отключился. Всего подписчиков: {len(admin_request_subscribers)}")
 
 # -----------------------------------------------------------------------------
 # СТАТИЧЕСКИЕ ФАЙЛЫ
