@@ -321,6 +321,36 @@
             transform: translateY(0);
         }
 
+        /* Новая компактная кнопка скачивания паспорта */
+        .download-passport-compact {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%);
+            color: var(--success-text);
+            border: 2px solid var(--success-text);
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 6px rgba(155, 132, 116, 0.2);
+            white-space: nowrap;
+        }
+
+        .download-passport-compact:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(155, 132, 116, 0.3);
+            background: linear-gradient(135deg, var(--accent-dark) 0%, var(--accent-brown) 100%);
+        }
+
+        .download-passport-compact:active {
+            transform: translateY(0);
+        }
+
+        .download-passport-compact:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .booking-detail {
             display: flex;
             align-items: center;
@@ -713,6 +743,15 @@
                             <div class="booking-detail">Строка листа: <strong>${sheetRow}</strong></div>
                             ${groupLabel ? `<div class="booking-detail">Группа: <strong>${groupLabel}</strong></div>` : ''}
                         </div>
+
+                        <button
+                            class="download-passport-compact"
+                            onclick="downloadPassportPDF(event, ${booking.id})"
+                            style="margin: 12px 0;"
+                            ${!passportImage ? 'disabled title="Паспорт не загружен"' : ''}
+                        >
+                            📥 Скачать паспорт
+                        </button>
 
                 <button class="details-btn" onclick="toggleDetails(event, 'details-${index}', this)">
                     📋 Подробнее
