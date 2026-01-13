@@ -1096,9 +1096,17 @@
 
     async function cancelBooking(bookingId) {
         const targetId = bookingId || selectedBooking?.id;
-        if (!targetId) return;
+        console.log('🔴 cancelBooking вызвана, booking ID:', targetId);
+
+        if (!targetId) {
+            console.error('❌ Нет booking ID');
+            return;
+        }
+
         try {
             const comment = prompt('Комментарий для отмены (обязательно):', '') || '';
+            console.log('💬 Введен комментарий:', comment);
+
             if (!comment.trim()) {
                 alert('❌ Нужен комментарий для заявки на отмену.');
                 return;
@@ -1107,6 +1115,17 @@
             const user = tg.initDataUnsafe?.user;
             const managerId = urlManagerId || user?.id || 0;
 
+            console.log('👤 Manager ID:', managerId);
+            console.log('🌐 API URL:', API_URL);
+
+            const payload = {
+                booking_id: targetId,
+                comment: comment.trim(),
+                manager_id: managerId
+            };
+
+            console.log('📤 Отправляем запрос на отмену:', payload);
+
             // Отмена через API endpoint (работает без бота)
             const res = await fetch(`${API_URL}/api/bookings/cancel/request`, {
                 method: 'POST',
@@ -1114,14 +1133,14 @@
                     'Content-Type': 'application/json',
                     'ngrok-skip-browser-warning': '1'
                 },
-                body: JSON.stringify({
-                    booking_id: targetId,
-                    comment: comment.trim(),
-                    manager_id: managerId
-                })
+                body: JSON.stringify(payload)
             });
 
+            console.log('📥 Получен ответ, status:', res.status);
+
             const json = await res.json();
+            console.log('📋 Ответ сервера:', json);
+
             if (!res.ok || !json.ok) {
                 alert('❌ Ошибка: ' + (json.error || res.status));
                 return;
@@ -1131,6 +1150,7 @@
             closeModal();
             await loadBookings(managerId);
         } catch (e) {
+            console.error('❌ ОШИБКА в cancelBooking:', e);
             alert('❌ Ошибка сети: ' + e);
         }
     }
@@ -1202,7 +1222,12 @@
 
         input.onchange = async (e) => {
             const file = e.target.files[0];
-            if (!file) return;
+            console.log('📁 Выбран файл:', file?.name, 'размер:', file?.size);
+
+            if (!file) {
+                console.error('❌ Файл не выбран');
+                return;
+            }
 
             // overlay loading
             const loadingDiv = document.createElement('div');
@@ -1214,18 +1239,28 @@
                 const formData = new FormData();
                 formData.append("file", file);
 
+                console.log('📤 Отправляем файл на:', `${API_URL}/api/passports/upload`);
+
                 const uploadRes = await fetch(`${API_URL}/api/passports/upload`, {
                     method: "POST",
                     body: formData,
                     headers: {"ngrok-skip-browser-warning": "1"}
                 });
+
+                console.log('📥 Ответ от сервера, status:', uploadRes.status);
+
                 const uploadJson = await uploadRes.json();
+                console.log('📋 Данные от сервера:', uploadJson);
+
                 if (!uploadRes.ok || !uploadJson.ok) {
                     throw new Error(uploadJson.error || `Ошибка загрузки: ${uploadRes.status}`);
                 }
 
                 const passportPath = uploadJson.path;
                 const parsedData = uploadJson.parsed_data || uploadJson.data || {};
+
+                console.log('📄 Путь к паспорту:', passportPath);
+                console.log('🔍 Распознанные данные:', parsedData);
 
                 // Только сохраняем файл паспорта и тип документа, остальные данные брони НЕ трогаем
                 const patchBody = {
@@ -1235,6 +1270,8 @@
                     }]
                 };
 
+                console.log('📤 Обновляем бронь #', bookingId, 'с данными:', patchBody);
+
                 const updateRes = await fetch(`${API_URL}/api/bookings/${bookingId}`, {
                     method: 'PATCH',
                     headers: {
@@ -1243,7 +1280,12 @@
                     },
                     body: JSON.stringify(patchBody)
                 });
+
+                console.log('📥 Ответ на обновление, status:', updateRes.status);
+
                 const updateJson = await updateRes.json();
+                console.log('📋 Результат обновления:', updateJson);
+
                 if (!updateRes.ok || !updateJson.ok) {
                     throw new Error(updateJson.error || 'Ошибка обновления данных');
                 }
@@ -1253,6 +1295,7 @@
                 const user = tg.initDataUnsafe?.user;
                 await loadBookings(urlManagerId || user?.id || 0);
             } catch (err) {
+                console.error('❌ ОШИБКА при загрузке паспорта:', err);
                 alert('❌ Ошибка загрузки: ' + err.message);
             } finally {
                 document.body.removeChild(loadingDiv);
