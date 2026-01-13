@@ -1,5 +1,6 @@
 
 import os
+import re
 import aiohttp
 from typing import List, Optional
 from fastapi import WebSocket
@@ -7,6 +8,24 @@ from datetime import datetime
 
 phone_subscribers: List[WebSocket] = []
 admin_request_subscribers: List[WebSocket] = []
+
+
+def extract_departure_date(package_name: str) -> str:
+    """
+    Извлекает первую дату из названия пакета.
+    Примеры:
+        "31.01-07.02 NIYET econom" -> "31.01"
+        "15.03-22.03 Умра" -> "15.03"
+    """
+    if not package_name or package_name == "-":
+        return "-"
+
+    # Ищем паттерн DD.MM в начале строки
+    match = re.match(r'(\d{1,2}\.\d{1,2})', package_name.strip())
+    if match:
+        return match.group(1)
+
+    return "-"
 
 
 async def notify_phone_subscribers(
@@ -28,6 +47,9 @@ async def notify_phone_subscribers(
     if not phone or phone == "-":
         return
 
+    # Извлекаем дату вылета из названия пакета
+    departure_date = extract_departure_date(package_name)
+
     message = {
         "event": "new_phone",
         "phone": phone,
@@ -35,6 +57,7 @@ async def notify_phone_subscribers(
         "guest_name": guest_name,
         "timestamp": datetime.now().isoformat(),
 
+        "departure_date": departure_date,
         "package_name": package_name,
         "departure_city": departure_city,
 
@@ -70,7 +93,8 @@ async def notify_phone_subscribers(
         print(f"   Guest:      {guest_name}")
         print(f"   Booking ID: {booking_id}")
         print(f"   Timestamp:  {message['timestamp']}")
-        print(f"\n   Package:    {package_name}")
+        print(f"\n   Date:       {departure_date}")
+        print(f"   Package:    {package_name}")
         print(f"   Departure:  {departure_city}")
         print(f"   Room:       {room_type}")
         print(f"   Manager:    {manager_name}")
