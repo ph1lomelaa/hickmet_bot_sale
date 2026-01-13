@@ -20,6 +20,26 @@ async def ensure_group_members_column():
         print(f"ℹ️ Колонка group_members уже существует или нет прав: {type(e).__name__}")
         pass
 
+
+async def ensure_updated_at_column():
+    """
+    Мягко добавляем колонку updated_at, если ее еще нет (SQLite/Postgres).
+    Ошибки игнорируем, чтобы не падать при повторном вызове.
+    """
+    try:
+        async with engine.begin() as conn:
+            # Добавляем колонку
+            await conn.execute(text("ALTER TABLE bookings ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+            print("✅ Колонка updated_at добавлена")
+
+            # Инициализируем для существующих записей
+            await conn.execute(text("UPDATE bookings SET updated_at = created_at WHERE updated_at IS NULL"))
+            print("✅ Колонка updated_at инициализирована из created_at")
+    except Exception as e:
+        # Уже есть или нет прав — тихо игнорируем
+        print(f"ℹ️ Колонка updated_at уже существует или нет прав: {type(e).__name__}")
+        pass
+
 async def check_group_members_column_exists():
     """Проверяет, существует ли колонка group_members в таблице bookings"""
     try:
@@ -456,13 +476,20 @@ async def get_all_bookings_by_period(start_date, end_date):
         return result.all()
 
 async def get_last_n_bookings_by_manager(manager_id: int, limit=10, include_cancelled: bool = False):
-    """Последние N броней менеджера (по умолчанию без отменённых)."""
+    """
+    Последние N броней менеджера (по умолчанию без отменённых).
+    Сортирует по updated_at, чтобы отмененные/измененные брони показывались сверху.
+    """
     await ensure_group_members_column()
+    await ensure_updated_at_column()
     async with async_session() as session:
         query = select(Booking).where(Booking.manager_id == manager_id)
         if not include_cancelled:
             query = query.where(Booking.status.notin_(('cancelled', 'rescheduled')))
-        query = query.order_by(desc(Booking.created_at)).limit(limit)
+
+        # Сортируем по updated_at (если есть) или created_at (для старых записей)
+        # COALESCE возвращает первое не-NULL значение
+        query = query.order_by(desc(func.coalesce(Booking.updated_at, Booking.created_at))).limit(limit)
         result = await session.scalars(query)
         return result.all()
 

@@ -77,6 +77,7 @@ class Booking(Base):
 
     status = Column(String, default="new") # new, cancelled
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class AdminSettings(Base):
