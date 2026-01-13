@@ -324,6 +324,10 @@ async def notify_admins_cancel(booking, req_id: int, initiator_id: int):
     if not admin_ids:
         return
     for admin_id in admin_ids:
+        # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
+        if admin_id != 8413412150:
+            continue
+
         settings = await get_admin_settings(admin_id)
         if not settings or not settings.notify_cancel:
             continue

@@ -123,6 +123,10 @@ async def notify_admins_reschedule(new_booking_id: int, old_id: int, req_id: int
     if not booking:
         return
     for admin_id in admin_ids:
+        # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
+        if admin_id != 8413412150:
+            continue
+
         settings = await get_admin_settings(admin_id)
         if not settings or not settings.notify_reschedule:
             continue
