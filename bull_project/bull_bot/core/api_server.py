@@ -802,7 +802,42 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 gender=record.get("gender", "M")
             )
 
-    # 9. 🔔 Отправляем webhook уведомление о новой брони (временно отключено)
+    # 9. 🔔 Отправляем уведомления админам о новых бронях
+    try:
+        from bull_project.bull_bot.core.websocket_manager import notify_admins_about_new_booking
+
+        for i, record in enumerate(db_records):
+            # Подготавливаем данные брони для уведомления
+            booking_data = {
+                'id': db_ids[i] if i < len(db_ids) else 0,
+                'package_name': record.get("package_name", "-"),
+                'sheet_name': record.get("sheet_name", "-"),
+                'sheet_row_number': saved_rows[i] if i < len(saved_rows) else "-",
+                'guest_last_name': record.get("guest_last_name", ""),
+                'guest_first_name': record.get("guest_first_name", ""),
+                'gender': record.get("gender", "M"),
+                'client_phone': record.get("client_phone", "-"),
+                'room_type': record.get("room_type", "-"),
+                'meal_type': record.get("meal_type", "-"),
+                'price': record.get("price", "-"),
+                'amount_paid': record.get("amount_paid", "-"),
+                'region': record.get("region", "-"),
+                'departure_city': record.get("departure_city", "-"),
+                'visa_status': record.get("visa_status", "-"),
+                'avia': record.get("avia", "-"),
+                'manager_name_text': record.get("manager_name_text", "-"),
+                'comment': record.get("comment", ""),
+                'passport_warning': record.get("passport_warning", ""),
+                'created_at': datetime.now()
+            }
+
+            await notify_admins_about_new_booking(booking_data)
+
+    except Exception as notify_error:
+        # Не прерываем выполнение если уведомление не отправилось
+        print(f"⚠️ Ошибка отправки уведомления админам (не критично): {notify_error}")
+
+    # 10. 🔔 Отправляем webhook уведомление о новой брони (временно отключено)
     # try:
     #     await notify_new_booking(
     #         bookings_data=db_records,
