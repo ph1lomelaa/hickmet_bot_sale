@@ -295,11 +295,23 @@ async def notify_admins_about_request(
         initiator_id: ID менеджера/пользователя который создал заявку
         comment: Комментарий к заявке
     """
+    print(f"\n{'='*60}")
+    print(f"🔔 notify_admins_about_request вызвана!")
+    print(f"{'='*60}")
+    print(f"   Request ID:   {request_id}")
+    print(f"   Booking ID:   {booking_id}")
+    print(f"   Request type: {request_type}")
+    print(f"   Initiator ID: {initiator_id}")
+    print(f"   Comment:      {comment}")
+    print(f"   Booking data: {booking_data}")
+    print(f"{'='*60}\n")
+
     try:
         # Импортируем функции для работы с БД
         from bull_project.bull_bot.database.requests import get_admin_ids, get_admin_settings
 
         admin_ids = await get_admin_ids()
+        print(f"📋 Найдено админов: {len(admin_ids)} - {admin_ids}")
 
         # Подготавливаем данные заявки
         request_data = {
@@ -337,29 +349,41 @@ async def notify_admins_about_request(
         # Отправляем уведомления админам
         for admin_id in admin_ids:
             try:
+                print(f"\n   Обработка админа {admin_id}...")
+
                 # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
                 if admin_id != 8413412150:
+                    print(f"   ⏭️  Пропущен (не тестовый админ)")
                     continue
 
+                print(f"   ✅ Тестовый админ - продолжаем")
+
                 settings = await get_admin_settings(admin_id)
+                print(f"   📊 Настройки: new={settings.notify_new}, cancel={settings.notify_cancel}, reschedule={settings.notify_reschedule}")
 
                 # Проверяем настройки уведомлений
                 if request_type == "cancel" and not settings.notify_cancel:
-                    print(f"ℹ️ Админ {admin_id} отключил уведомления об отменах")
+                    print(f"   ℹ️ Админ {admin_id} отключил уведомления об отменах")
                     continue
                 elif request_type == "reschedule" and not settings.notify_reschedule:
-                    print(f"ℹ️ Админ {admin_id} отключил уведомления о переносах")
+                    print(f"   ℹ️ Админ {admin_id} отключил уведомления о переносах")
                     continue
 
+                print(f"   📤 Отправка Telegram уведомления...")
+
                 # Отправляем через HTTP API
-                await send_telegram_notification(
+                result = await send_telegram_notification(
                     chat_id=admin_id,
                     text=text,
                     reply_markup=reply_markup
                 )
 
+                print(f"   📬 Результат отправки: {result}")
+
             except Exception as e:
-                print(f"⚠️ Ошибка отправки уведомления админу {admin_id}: {e}")
+                print(f"   ⚠️ Ошибка отправки уведомления админу {admin_id}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
 
         print(f"🔔 Уведомления о заявке #{request_id} отправлены админам")
