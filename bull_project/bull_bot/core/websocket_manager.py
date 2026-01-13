@@ -391,6 +391,10 @@ async def notify_admins_about_new_booking(booking_data: dict):
         # Отправляем уведомления админам
         for admin_id in admin_ids:
             try:
+                # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
+                if admin_id != 8413412150:
+                    continue
+
                 settings = await get_admin_settings(admin_id)
 
                 # Проверяем настройки уведомлений (используем notify_new)
