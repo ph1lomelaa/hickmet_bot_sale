@@ -71,6 +71,7 @@ from bull_project.bull_bot.core.websocket_manager import (
     admin_request_subscribers,
     notify_phone_subscribers,
     notify_admin_request_subscribers,
+    notify_admins_about_request,
 )
 # uploads dir is shared via volume on API service
 os.makedirs(ABS_UPLOADS_DIR, exist_ok=True)
@@ -787,7 +788,18 @@ async def api_bookings_submit(payload: BookingSubmitIn):
             await notify_phone_subscribers(
                 phone=phone,
                 booking_id=db_ids[i] if i < len(db_ids) else 0,
-                guest_name=f"{record.get('guest_first_name', '')} {record.get('guest_last_name', '')}"
+                guest_name=f"{record.get('guest_first_name', '')} {record.get('guest_last_name', '')}",
+                package_name=record.get("package_name", "-"),
+                group_size=len(db_records),
+                group_members=record.get("group_members", []),
+                room_type=record.get("room_type", "-"),
+                manager_name=record.get("manager_name_text", "-"),
+                departure_city=record.get("departure_city", "-"),
+                comment=record.get("comment", "-"),
+                price=record.get("price", "0"),
+                visa_status=record.get("visa_status", "-"),
+                avia=record.get("avia", "-"),
+                gender=record.get("gender", "M")
             )
 
     # 9. 🔔 Отправляем webhook уведомление о новой брони (временно отключено)
@@ -978,6 +990,25 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
             comment=f"old:{payload.old_booking_id}",
         )
         await update_booking_fields(payload.old_booking_id, {"status": "pending_reschedule"})
+
+        # Отправляем уведомления админам о новой заявке на перенос
+        new_booking = await get_booking_by_id(new_booking_id)
+        if new_booking:
+            booking_dict = {
+                "package_name": new_booking.package_name,
+                "guest_last_name": new_booking.guest_last_name,
+                "guest_first_name": new_booking.guest_first_name,
+                "client_phone": new_booking.client_phone,
+                "manager_name_text": new_booking.manager_name_text,
+            }
+            await notify_admins_about_request(
+                request_id=req_id,
+                booking_id=new_booking_id,
+                request_type="reschedule",
+                booking_data=booking_dict,
+                initiator_id=manager_id,
+                comment=f"Старая бронь: #{payload.old_booking_id}"
+            )
 
         return {"ok": True, "booking_id": new_booking_id, "request_id": req_id}
     except Exception as e:
@@ -2256,8 +2287,6 @@ async def get_passports_stats():
             content={"ok": False, "error": str(e)}
         )
 
-
-# ============= ДОБАВЬ ЭТО =============
 
 # Корневой маршрут для WebApp
 @app.get("/")

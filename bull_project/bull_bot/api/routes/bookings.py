@@ -17,6 +17,7 @@ from bull_project.bull_bot.database.requests import (
     create_approval_request,
 )
 from bull_project.bull_bot.core.google_sheets.writer import save_group_booking
+from bull_project.bull_bot.core.websocket_manager import notify_admins_about_request
 
 
 router = APIRouter()
@@ -286,6 +287,25 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
         new_booking_id = await add_booking_to_db(new_booking_data, manager_id)
         req_id = await create_approval_request(new_booking_id, "reschedule", manager_id, comment=f"old:{payload.old_booking_id}")
         await update_booking_fields(payload.old_booking_id, {"status": "pending_reschedule"})
+
+        # Отправляем уведомления админам о новой заявке на перенос
+        new_booking = await get_booking_by_id(new_booking_id)
+        if new_booking:
+            booking_dict = {
+                "package_name": new_booking.package_name,
+                "guest_last_name": new_booking.guest_last_name,
+                "guest_first_name": new_booking.guest_first_name,
+                "client_phone": new_booking.client_phone,
+                "manager_name_text": new_booking.manager_name_text,
+            }
+            await notify_admins_about_request(
+                request_id=req_id,
+                booking_id=new_booking_id,
+                request_type="reschedule",
+                booking_data=booking_dict,
+                initiator_id=manager_id,
+                comment=f"Старая бронь: #{payload.old_booking_id}"
+            )
 
         return {"ok": True, "booking_id": new_booking_id, "request_id": req_id}
     except Exception as e:
