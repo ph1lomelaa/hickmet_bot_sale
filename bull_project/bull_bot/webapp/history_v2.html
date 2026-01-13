@@ -595,9 +595,9 @@
         <div id="modal-body"></div>
 
         <div class="modal-actions">
-            <button class="action-btn" onclick="closeModal()">Закрыть</button>
-            <button class="action-btn danger" id="cancel-btn" onclick="promptCancelSelected()">Отменить</button>
-            <button class="action-btn primary" id="reschedule-btn" onclick="rescheduleBooking()">Перенести</button>
+            <button class="action-btn" onclick="console.log('⭕ Кнопка Закрыть нажата'); closeModal()">Закрыть</button>
+            <button class="action-btn danger" id="cancel-btn" onclick="console.log('🔴 Кнопка ОТМЕНИТЬ нажата'); promptCancelSelected()">Отменить</button>
+            <button class="action-btn primary" id="reschedule-btn" onclick="console.log('🟡 Кнопка ПЕРЕНЕСТИ нажата'); rescheduleBooking()">Перенести</button>
         </div>
     </div>
 </div>
@@ -983,10 +983,10 @@
 
                 ${!cancelled ? `
                 <div class="booking-actions">
-                    <button class="action-btn" onclick="startEditData(${booking.id})">✏️ Изменить</button>
-                    <button class="action-btn" onclick="startUploadPassport(${booking.id})">📄 Загрузить паспорт</button>
-                    <button class="action-btn" onclick="startReschedule(${booking.id})">Перенести</button>
-                    <button class="action-btn danger" onclick="confirmCancel(${booking.id})">Отменить</button>
+                    <button class="action-btn" onclick="console.log('✏️ ИЗМЕНИТЬ нажата'); startEditData(${booking.id})">✏️ Изменить</button>
+                    <button class="action-btn" onclick="console.log('📄 ЗАГРУЗИТЬ ПАСПОРТ нажата'); startUploadPassport(${booking.id})">📄 Загрузить паспорт</button>
+                    <button class="action-btn" onclick="console.log('🟡 ПЕРЕНЕСТИ (карточка) нажата, ID=${booking.id}'); startReschedule(${booking.id})">Перенести</button>
+                    <button class="action-btn danger" onclick="console.log('🔴 ОТМЕНИТЬ (карточка) нажата, ID=${booking.id}'); confirmCancel(${booking.id})">Отменить</button>
                 </div>
                 ` : ''}
             </div>
@@ -1080,10 +1080,20 @@
         `;
         
         const status = mapStatus(booking.status);
-        document.getElementById('cancel-btn').style.display = status === 'cancelled' ? 'none' : 'inline-flex';
-        document.getElementById('reschedule-btn').style.display = status === 'cancelled' ? 'none' : 'inline-flex';
-        
+        console.log('📊 Статус брони:', booking.status, '-> mapped:', status);
+
+        const cancelBtn = document.getElementById('cancel-btn');
+        const rescheduleBtn = document.getElementById('reschedule-btn');
+
+        const shouldHide = status === 'cancelled';
+        cancelBtn.style.display = shouldHide ? 'none' : 'inline-flex';
+        rescheduleBtn.style.display = shouldHide ? 'none' : 'inline-flex';
+
+        console.log('🔘 Кнопка ОТМЕНИТЬ видна:', cancelBtn.style.display !== 'none');
+        console.log('🔘 Кнопка ПЕРЕНЕСТИ видна:', rescheduleBtn.style.display !== 'none');
+
         document.getElementById('detail-modal').classList.add('active');
+        console.log('✅ Модальное окно открыто');
     }
 
     function closeModal() {
@@ -1094,10 +1104,23 @@
     }
 
     async function confirmCancel(bookingId) {
+        console.log('🔵 confirmCancel вызвана, booking ID:', bookingId);
         const booking = allBookings.find(b => b.id === bookingId);
-        if (!booking) return;
-        
-        if (!requireCancelConfirm(booking)) return;
+
+        if (!booking) {
+            console.error('❌ Бронь не найдена в allBookings');
+            return;
+        }
+
+        console.log('🔵 Найдена бронь:', booking);
+        console.log('🔵 Вызываем requireCancelConfirm...');
+
+        if (!requireCancelConfirm(booking)) {
+            console.warn('⚠️ requireCancelConfirm вернул false - отмена прервана');
+            return;
+        }
+
+        console.log('🔵 Подтверждение получено, вызываем cancelBooking...');
         await cancelBooking(bookingId);
     }
 
