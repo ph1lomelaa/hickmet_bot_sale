@@ -238,7 +238,12 @@ async def view_booking_card(call: CallbackQuery):
 @router.callback_query(F.data.startswith("cancel_ask:"))
 async def ask_cancel(call: CallbackQuery):
     """Запрос отправляется админам на подтверждение"""
+    print(f"\n{'='*60}")
+    print(f"🔴 ask_cancel вызвана! User: {call.from_user.id}")
+    print(f"{'='*60}")
+
     bid = call.data.split(":")[1]
+    print(f"   Booking ID: {bid}")
     b = await get_booking_by_id(int(bid))
     
     if not b:
@@ -255,7 +260,9 @@ async def ask_cancel(call: CallbackQuery):
         reply_markup=get_menu_by_role(await get_user_role(call.from_user.id)),
         parse_mode="HTML"
     )
+    print(f"   ⏩ Вызываем notify_admins_cancel(booking_id={b.id}, req_id={req_id}, initiator={call.from_user.id})")
     await notify_admins_cancel(b, req_id, call.from_user.id)
+    print(f"   ✅ notify_admins_cancel завершена\n")
     await call.answer()
 
 
@@ -321,6 +328,11 @@ async def start_edit(call: CallbackQuery, state: FSMContext):
 # ====== ВСПОМОГАТЕЛЬНОЕ: Уведомление админам о запросе отмены ======
 async def notify_admins_cancel(booking, req_id: int, initiator_id: int):
     """Уведомление админов об отмене - использует HTTP API вместо aiogram"""
+    print(f"\n🟠 notify_admins_cancel вызвана:")
+    print(f"   Booking ID: {booking.id}")
+    print(f"   Request ID: {req_id}")
+    print(f"   Initiator:  {initiator_id}")
+
     from bull_project.bull_bot.core.websocket_manager import notify_admins_about_request
 
     booking_data = {
@@ -346,6 +358,7 @@ async def notify_admins_cancel(booking, req_id: int, initiator_id: int):
         'created_at': booking.created_at
     }
 
+    print(f"   🚀 Вызываем notify_admins_about_request для отмены...")
     await notify_admins_about_request(
         request_id=req_id,
         booking_id=booking.id,
@@ -354,5 +367,6 @@ async def notify_admins_cancel(booking, req_id: int, initiator_id: int):
         initiator_id=initiator_id,
         comment=None
     )
+    print(f"   ✅ notify_admins_about_request завершена\n")
 
 # Отмена через текст "YES" отключена: теперь отмена только через админское подтверждение
