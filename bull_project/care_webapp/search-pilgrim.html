@@ -321,6 +321,31 @@
             display: none;
         }
 
+        .download-passport-compact {
+            width: 100%;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%);
+            color: var(--success-text);
+            border: 2px solid var(--success-text);
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 8px;
+        }
+
+        .download-passport-compact:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(46, 125, 50, 0.2);
+        }
+
+        .download-passport-compact:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         /* Перестраховка: если контейнеры случайно продублируются, прячем дубликаты */
         body > .header + .header,
         body > .search-container + .search-container {
@@ -497,6 +522,14 @@
                         </div>
                     </div>
 
+                    <button
+                        class="download-passport-compact"
+                        onclick="downloadPassportPDF(event, ${booking.id})"
+                        ${!booking.passport_image_path ? 'disabled title="Паспорт не загружен"' : ''}
+                    >
+                        📥 Скачать паспорт
+                    </button>
+
                     <button class="details-btn" onclick="toggleDetails(${index})">
                         📋 Подробнее
                     </button>
@@ -572,6 +605,35 @@
                 detailsDiv.classList.add('show');
                 btn.classList.add('active');
                 btn.innerHTML = '🔼 Скрыть';
+            }
+        }
+
+        async function downloadPassportPDF(event, bookingId) {
+            event.stopPropagation();
+
+            try {
+                const response = await fetch(`${API_URL}/api/care/passport-pdf/${bookingId}`, {
+                    headers: {
+                        'ngrok-skip-browser-warning': '1'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки паспорта');
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `passport_${bookingId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Ошибка при скачивании паспорта');
             }
         }
 
