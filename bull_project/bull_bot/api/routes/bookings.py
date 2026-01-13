@@ -210,6 +210,13 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
     Создание заявки на перенос (без записи в Google Sheets).
     Создаёт новую бронь в БД со статусом pending_reschedule + ApprovalRequest(old:<id>).
     """
+    print(f"\n{'='*60}")
+    print(f"📨 API: Получен запрос на перенос")
+    print(f"{'='*60}")
+    print(f"   Old booking ID: {payload.old_booking_id}")
+    print(f"   New package: {payload.package_name}")
+    print(f"{'='*60}\n")
+
     try:
         if not payload.pilgrims:
             return JSONResponse(status_code=400, content={"ok": False, "error": "Список паломников пуст"})
@@ -291,20 +298,36 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
         # Отправляем уведомления админам о новой заявке на перенос
         new_booking = await get_booking_by_id(new_booking_id)
         if new_booking:
-            booking_dict = {
-                "package_name": new_booking.package_name,
-                "guest_last_name": new_booking.guest_last_name,
-                "guest_first_name": new_booking.guest_first_name,
-                "client_phone": new_booking.client_phone,
-                "manager_name_text": new_booking.manager_name_text,
+            booking_data = {
+                'id': new_booking.id,
+                'package_name': new_booking.package_name,
+                'sheet_name': new_booking.sheet_name,
+                'sheet_row_number': new_booking.sheet_row_number,
+                'guest_last_name': new_booking.guest_last_name,
+                'guest_first_name': new_booking.guest_first_name,
+                'gender': new_booking.gender,
+                'client_phone': new_booking.client_phone,
+                'room_type': new_booking.room_type,
+                'meal_type': new_booking.meal_type,
+                'price': new_booking.price,
+                'amount_paid': new_booking.amount_paid,
+                'region': new_booking.region,
+                'departure_city': new_booking.departure_city,
+                'visa_status': new_booking.visa_status,
+                'avia': new_booking.avia,
+                'manager_name_text': new_booking.manager_name_text,
+                'comment': new_booking.comment,
+                'passport_warning': new_booking.passport_warning,
+                'created_at': new_booking.created_at,
+                'old_booking_id': payload.old_booking_id
             }
             await notify_admins_about_request(
                 request_id=req_id,
                 booking_id=new_booking_id,
                 request_type="reschedule",
-                booking_data=booking_dict,
+                booking_data=booking_data,
                 initiator_id=manager_id,
-                comment=f"Старая бронь: #{payload.old_booking_id}"
+                comment=f"Перенос с #{payload.old_booking_id}"
             )
 
         return {"ok": True, "booking_id": new_booking_id, "request_id": req_id}
