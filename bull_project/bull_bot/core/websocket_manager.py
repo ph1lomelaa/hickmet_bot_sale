@@ -181,7 +181,7 @@ def format_admin_notification(
 
     # Заголовок в зависимости от типа
     if notification_type == "new_booking":
-        header = "📋 БРОНЬ"
+        header = "📋 НОВАЯ БРОНЬ"
     elif notification_type == "cancel":
         header = "🛑 ЗАПРОС НА ОТМЕНУ"
     elif notification_type == "reschedule":
