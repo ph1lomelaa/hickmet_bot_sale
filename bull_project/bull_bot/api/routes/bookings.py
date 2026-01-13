@@ -336,16 +336,84 @@ async def update_booking_endpoint(booking_id: int, payload: BookingUpdateIn):
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 
+@router.post("/api/bookings/cancel/request")
+async def api_bookings_cancel_request(payload: Dict[str, Any]):
+    """
+    Создание заявки на отмену брони (через WebApp).
+    Создаёт ApprovalRequest и ставит статус pending_cancel.
+    """
+    print(f"\n{'='*60}")
+    print(f"📨 API: Получен запрос на отмену")
+    print(f"{'='*60}")
+    print(f"   Payload: {payload}")
+    print(f"{'='*60}\n")
+
+    try:
+        booking_id = payload.get("booking_id")
+        comment = payload.get("comment", "").strip()
+        manager_id = payload.get("manager_id", 0)
+
+        if not booking_id:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "Не указан booking_id"})
+        if not comment:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "Нужен комментарий для заявки на отмену"})
+
+        booking = await get_booking_by_id(booking_id)
+        if not booking:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "Бронь не найдена"})
+
+        # Создаём заявку на отмену
+        req_id = await create_approval_request(booking.id, "cancel", manager_id, comment=comment)
+        await update_booking_fields(booking.id, {"status": "pending_cancel"})
+
+        # Уведомляем админов через HTTP API
+        booking_data = {
+            'id': booking.id,
+            'package_name': booking.package_name,
+            'sheet_name': booking.sheet_name,
+            'sheet_row_number': booking.sheet_row_number,
+            'guest_last_name': booking.guest_last_name,
+            'guest_first_name': booking.guest_first_name,
+            'gender': booking.gender,
+            'client_phone': booking.client_phone,
+            'room_type': booking.room_type,
+            'meal_type': booking.meal_type,
+            'price': booking.price,
+            'amount_paid': booking.amount_paid,
+            'region': booking.region,
+            'departure_city': booking.departure_city,
+            'visa_status': booking.visa_status,
+            'avia': booking.avia,
+            'manager_name_text': booking.manager_name_text,
+            'comment': booking.comment,
+            'passport_warning': booking.passport_warning,
+            'created_at': booking.created_at
+        }
+
+        await notify_admins_about_request(
+            request_id=req_id,
+            booking_id=booking.id,
+            request_type="cancel",
+            booking_data=booking_data,
+            initiator_id=manager_id,
+            comment=comment
+        )
+
+        return {"ok": True, "request_id": req_id, "message": "Заявка на отмену отправлена администратору"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
 @router.post("/api/bookings/{booking_id}/cancel")
 async def cancel_booking_endpoint(booking_id: int):
     """
-    УСТАРЕЛО: прямая отмена выключена. Отмена теперь только через заявку + одобрение админа.
+    УСТАРЕЛО: прямая отмена выключена. Используйте /api/bookings/cancel/request
     """
     return JSONResponse(
         status_code=403,
         content={
             "ok": False,
-            "error": "Прямая отмена отключена. Создайте заявку на отмену и дождитесь одобрения администратора.",
+            "error": "Прямая отмена отключена. Используйте /api/bookings/cancel/request",
         },
     )
 

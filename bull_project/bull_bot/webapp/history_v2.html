@@ -1104,15 +1104,32 @@
                 return;
             }
 
-            // Отмена только через админское подтверждение: отправляем заявку в бот
-            tg.sendData(JSON.stringify({
-                action: "cancel_request",
-                booking_id: targetId,
-                comment: comment.trim()
-            }));
+            const user = tg.initDataUnsafe?.user;
+            const managerId = urlManagerId || user?.id || 0;
+
+            // Отмена через API endpoint (работает без бота)
+            const res = await fetch(`${API_URL}/api/bookings/cancel/request`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': '1'
+                },
+                body: JSON.stringify({
+                    booking_id: targetId,
+                    comment: comment.trim(),
+                    manager_id: managerId
+                })
+            });
+
+            const json = await res.json();
+            if (!res.ok || !json.ok) {
+                alert('❌ Ошибка: ' + (json.error || res.status));
+                return;
+            }
 
             alert('⏳ Заявка на отмену отправлена администратору. Ожидайте подтверждения.');
             closeModal();
+            await loadBookings(managerId);
         } catch (e) {
             alert('❌ Ошибка сети: ' + e);
         }
