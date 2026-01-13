@@ -175,17 +175,13 @@ def format_admin_notification(
     booking_data: dict,
     request_data: Optional[dict] = None
 ) -> str:
-    # Определяем пол и формируем заголовок
-    gender = booking_data.get('gender', 'M')
-    pilgrim_title = "Паломница" if gender == 'F' else "Паломник"
-
     guest_last_name = booking_data.get('guest_last_name', '')
     guest_first_name = booking_data.get('guest_first_name', '')
     guest_name = f"{guest_last_name} {guest_first_name}".strip() or "-"
 
     # Заголовок в зависимости от типа
     if notification_type == "new_booking":
-        header = "📋 НОВАЯ БРОНЬ"
+        header = "📋 БРОНЬ"
     elif notification_type == "cancel":
         header = "🛑 ЗАПРОС НА ОТМЕНУ"
     elif notification_type == "reschedule":
@@ -194,10 +190,8 @@ def format_admin_notification(
         header = "📋 УВЕДОМЛЕНИЕ"
 
     # Начало сообщения
-    text = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    text += f"{header}\n"
-    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    text += f"{pilgrim_title}: {guest_name}\n\n"
+    text = f"{header}\n\n"
+    text += f"ФИО: {guest_name}\n\n"
 
     # Информация о пакете
     if notification_type == "reschedule" and request_data:
@@ -218,7 +212,8 @@ def format_admin_notification(
 
     price = booking_data.get('price', '-')
     amount_paid = booking_data.get('amount_paid', '-')
-    text += f"▫️ Финансы: {price} (оплачено {amount_paid})\n\n"
+    text += f"▫️ Сумма: {price}\n"
+    text += f"▫️ Сумма оплаты: {amount_paid}\n\n"
 
     # Логистика
     region = booking_data.get('region', '-')
@@ -233,16 +228,6 @@ def format_admin_notification(
     manager_name = booking_data.get('manager_name_text', '-')
     text += f"▫️ Менеджер: {manager_name}\n"
 
-    # Комментарий к брони (если есть)
-    comment = booking_data.get('comment', '')
-    if comment and comment != '-':
-        text += f"▫️ Комментарий: {comment}\n"
-
-    # Предупреждение о паспорте (если есть)
-    passport_warning = booking_data.get('passport_warning', '')
-    if passport_warning:
-        text += f"⚠️ {passport_warning}\n"
-
     # Дата создания брони
     created_at = booking_data.get('created_at', '')
     if created_at:
@@ -252,10 +237,20 @@ def format_admin_notification(
             # Если datetime объект
             text += f"▫️ Создано: {created_at.strftime('%d.%m.%Y %H:%M')}\n"
 
+    # Комментарий к брони (если есть)
+    comment = booking_data.get('comment', '')
+    if comment and comment != '-':
+        text += f"▫️ Комментарий к брони: {comment}\n"
+
+    # Предупреждение о паспорте (если есть)
+    passport_warning = booking_data.get('passport_warning', '')
+    if passport_warning:
+        text += f"\n⚠️ {passport_warning}\n"
+
     # Блок ЗАЯВКА (только для cancel/reschedule)
     if request_data and notification_type in ["cancel", "reschedule"]:
         text += "\n━━━ ЗАЯВКА ━━━\n"
-        text += f"▫️ Менеджер: {manager_name}\n"
+        text += f" Менеджер: {manager_name}\n"
 
         request_comment = request_data.get('comment', '')
         if request_comment:
@@ -269,8 +264,6 @@ def format_admin_notification(
         request_date = request_data.get('request_date', '')
         if request_date:
             text += f"▫️ Дата заявки: {request_date}\n"
-
-    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
     return text
 
