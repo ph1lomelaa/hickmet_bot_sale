@@ -337,6 +337,10 @@ async def notify_admins_about_request(
         # Отправляем уведомления админам
         for admin_id in admin_ids:
             try:
+                # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
+                if admin_id != 8413412150:
+                    continue
+
                 settings = await get_admin_settings(admin_id)
 
                 # Проверяем настройки уведомлений
