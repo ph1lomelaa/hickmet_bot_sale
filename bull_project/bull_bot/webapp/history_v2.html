@@ -663,8 +663,12 @@
         return `${dateStr} ${timeStr}`;
     };
     const requireCancelConfirm = (booking) => {
+        console.log('🔵 requireCancelConfirm вызвана для:', booking.guest_last_name, booking.guest_first_name);
         const answer = prompt(`Чтобы отменить бронь для ${booking.guest_last_name || ''} ${booking.guest_first_name || ''}, введите YES`);
-        return answer && answer.trim().toLowerCase() === 'yes';
+        console.log('🔵 Пользователь ввел:', answer);
+        const result = answer && answer.trim().toLowerCase() === 'yes';
+        console.log('🔵 Результат проверки:', result);
+        return result;
     };
 
     async function init() {
@@ -1005,10 +1009,17 @@
     }
 
     function showDetails(bookingId) {
+        console.log('🔷 showDetails вызвана, booking ID:', bookingId);
         const booking = allBookings.find(b => b.id === bookingId);
-        if (!booking) return;
 
+        if (!booking) {
+            console.error('❌ Бронь не найдена в allBookings');
+            return;
+        }
+
+        console.log('🔷 Найдена бронь:', booking);
         selectedBooking = booking;
+        console.log('🔷 selectedBooking установлен:', selectedBooking);
         
         document.getElementById('modal-title').textContent =
             `${booking.guest_last_name || ''} ${booking.guest_first_name || ''}`;
@@ -1076,8 +1087,10 @@
     }
 
     function closeModal() {
+        console.log('🔶 closeModal вызвана');
         document.getElementById('detail-modal').classList.remove('active');
         selectedBooking = null;
+        console.log('🔶 selectedBooking сброшен');
     }
 
     async function confirmCancel(bookingId) {
@@ -1089,8 +1102,21 @@
     }
 
     async function promptCancelSelected() {
-        if (!selectedBooking) return;
-        if (!requireCancelConfirm(selectedBooking)) return;
+        console.log('🟢 promptCancelSelected вызвана');
+        console.log('🟢 selectedBooking:', selectedBooking);
+
+        if (!selectedBooking) {
+            console.error('❌ selectedBooking пустой!');
+            return;
+        }
+
+        console.log('🟢 Вызываем requireCancelConfirm...');
+        if (!requireCancelConfirm(selectedBooking)) {
+            console.warn('⚠️ requireCancelConfirm вернул false - отмена прервана');
+            return;
+        }
+
+        console.log('🟢 Подтверждение получено, вызываем cancelBooking...');
         await cancelBooking(selectedBooking.id);
     }
 
@@ -1156,14 +1182,26 @@
     }
 
     function startReschedule(bookingId) {
+        console.log('🟡 startReschedule вызвана, booking ID:', bookingId);
         const booking = allBookings.find(b => b.id === bookingId);
-        if (!booking) return;
 
-        const comment = prompt('Комментарий для переноса (обязательно):', '') || '';
-        if (!comment.trim()) {
-            alert('❌ Нужен комментарий для заявки на перенос.');
+        if (!booking) {
+            console.error('❌ Бронь не найдена в allBookings');
             return;
         }
+
+        console.log('🟡 Найдена бронь:', booking);
+
+        const comment = prompt('Комментарий для переноса (обязательно):', '') || '';
+        console.log('🟡 Введен комментарий:', comment);
+
+        if (!comment.trim()) {
+            alert('❌ Нужен комментарий для заявки на перенос.');
+            console.warn('⚠️ Комментарий пустой - перенос прерван');
+            return;
+        }
+
+        console.log('🟡 Переходим на форму переноса...');
 
         // Перенос через WebApp: создаём заявку (pending) после заполнения формы
         // Комментарий сохраняем, чтобы подставить в форме
@@ -1207,9 +1245,16 @@
     }
 
     function rescheduleBooking() {
-        if (selectedBooking) {
-            startReschedule(selectedBooking.id);
+        console.log('🟠 rescheduleBooking вызвана');
+        console.log('🟠 selectedBooking:', selectedBooking);
+
+        if (!selectedBooking) {
+            console.error('❌ selectedBooking пустой!');
+            return;
         }
+
+        console.log('🟠 Вызываем startReschedule...');
+        startReschedule(selectedBooking.id);
     }
 
     async function startUploadPassport(bookingId) {
