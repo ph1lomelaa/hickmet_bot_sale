@@ -116,32 +116,42 @@ async def finalize_reschedule(message: Message, state: FSMContext):
 
 
 async def notify_admins_reschedule(new_booking_id: int, old_id: int, req_id: int, initiator_id: int):
-    admin_ids = await get_admin_ids()
-    if not admin_ids:
-        return
+    """Уведомление админов о переносе - использует HTTP API вместо aiogram"""
+    from bull_project.bull_bot.core.websocket_manager import notify_admins_about_request
+
     booking = await get_booking_by_id(new_booking_id)
     if not booking:
         return
-    for admin_id in admin_ids:
-        # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
-        if admin_id != 8413412150:
-            continue
 
-        settings = await get_admin_settings(admin_id)
-        if not settings or not settings.notify_reschedule:
-            continue
-        text = _format_admin_booking(
-            booking,
-            "♻️ Запрос на перенос",
-            extra=f"Старый #{old_id} → Новый #{booking.id}\nИнициатор: {initiator_id}"
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Подтвердить перенос", callback_data=f"admin_resched_ok:{req_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_resched_reject:{req_id}")
-            ]
-        ])
-        try:
-            await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
-        except Exception as e:
-            print(f"⚠️ Не удалось отправить уведомление админу {admin_id}: {e}")
+    booking_data = {
+        'id': booking.id,
+        'package_name': booking.package_name,
+        'sheet_name': booking.sheet_name,
+        'sheet_row_number': booking.sheet_row_number,
+        'guest_last_name': booking.guest_last_name,
+        'guest_first_name': booking.guest_first_name,
+        'gender': booking.gender,
+        'client_phone': booking.client_phone,
+        'room_type': booking.room_type,
+        'meal_type': booking.meal_type,
+        'price': booking.price,
+        'amount_paid': booking.amount_paid,
+        'region': booking.region,
+        'departure_city': booking.departure_city,
+        'visa_status': booking.visa_status,
+        'avia': booking.avia,
+        'manager_name_text': booking.manager_name_text,
+        'comment': booking.comment,
+        'passport_warning': booking.passport_warning,
+        'created_at': booking.created_at,
+        'old_booking_id': old_id
+    }
+
+    await notify_admins_about_request(
+        request_id=req_id,
+        booking_id=booking.id,
+        request_type="reschedule",
+        booking_data=booking_data,
+        initiator_id=initiator_id,
+        comment=f"Перенос с #{old_id}"
+    )

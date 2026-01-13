@@ -736,29 +736,40 @@ async def handle_webapp_data(message: Message, state: FSMContext):
             await update_booking_fields(b.id, {"status": "pending_cancel"})
             await message.answer(f"⏳ Заявка на отмену брони #{b.id} отправлена администратору.\nКомментарий: {comment}")
 
-            # Уведомляем админов в Telegram
-            admin_ids = await get_admin_ids()
-            for admin_id in admin_ids:
-                # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
-                if admin_id != 8413412150:
-                    continue
+            # Уведомляем админов через HTTP API (используем функцию из websocket_manager)
+            from bull_project.bull_bot.core.websocket_manager import notify_admins_about_request
 
-                settings = await get_admin_settings(admin_id)
-                if not settings or not settings.notify_cancel:
-                    continue
-                text = _format_admin_booking(
-                    b,
-                    "🛑 Запрос на отмену",
-                    extra=f"Инициатор: {message.from_user.id}\nКомментарий: {comment}"
-                )
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"admin_cancel_ok:{req_id}"),
-                        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_cancel_reject:{req_id}")
-                    ]
-                ])
-                with suppress(Exception):
-                    await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
+            booking_data = {
+                'id': b.id,
+                'package_name': b.package_name,
+                'sheet_name': b.sheet_name,
+                'sheet_row_number': b.sheet_row_number,
+                'guest_last_name': b.guest_last_name,
+                'guest_first_name': b.guest_first_name,
+                'gender': b.gender,
+                'client_phone': b.client_phone,
+                'room_type': b.room_type,
+                'meal_type': b.meal_type,
+                'price': b.price,
+                'amount_paid': b.amount_paid,
+                'region': b.region,
+                'departure_city': b.departure_city,
+                'visa_status': b.visa_status,
+                'avia': b.avia,
+                'manager_name_text': b.manager_name_text,
+                'comment': b.comment,
+                'passport_warning': b.passport_warning,
+                'created_at': b.created_at
+            }
+
+            await notify_admins_about_request(
+                request_id=req_id,
+                booking_id=b.id,
+                request_type="cancel",
+                booking_data=booking_data,
+                initiator_id=message.from_user.id,
+                comment=comment
+            )
 
             return
 
@@ -1012,30 +1023,43 @@ async def finalize_booking_integrated(message: Message, state: FSMContext, pilgr
             req_id = await create_approval_request(new_booking_id, "reschedule", message.from_user.id, comment=f"old:{old_booking_id}")
             await update_booking_fields(old_booking_id, {"status": "pending_reschedule"})
 
-            # Уведомляем админов
-            b = await get_booking_by_id(new_booking_id)
-            admin_ids = await get_admin_ids()
-            for admin_id in admin_ids:
-                # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
-                if admin_id != 8413412150:
-                    continue
+            # Уведомляем админов через HTTP API
+            from bull_project.bull_bot.core.websocket_manager import notify_admins_about_request
 
-                settings = await get_admin_settings(admin_id)
-                if not settings or not settings.notify_reschedule:
-                    continue
-                text = _format_admin_booking(
-                    b,
-                    "♻️ Запрос на перенос",
-                    extra=f"Старый #{old_booking_id} → Новый #{new_booking_id}\nИнициатор: {message.from_user.id}"
+            b = await get_booking_by_id(new_booking_id)
+            if b:
+                booking_data = {
+                    'id': b.id,
+                    'package_name': b.package_name,
+                    'sheet_name': b.sheet_name,
+                    'sheet_row_number': b.sheet_row_number,
+                    'guest_last_name': b.guest_last_name,
+                    'guest_first_name': b.guest_first_name,
+                    'gender': b.gender,
+                    'client_phone': b.client_phone,
+                    'room_type': b.room_type,
+                    'meal_type': b.meal_type,
+                    'price': b.price,
+                    'amount_paid': b.amount_paid,
+                    'region': b.region,
+                    'departure_city': b.departure_city,
+                    'visa_status': b.visa_status,
+                    'avia': b.avia,
+                    'manager_name_text': b.manager_name_text,
+                    'comment': b.comment,
+                    'passport_warning': b.passport_warning,
+                    'created_at': b.created_at,
+                    'old_booking_id': old_booking_id
+                }
+
+                await notify_admins_about_request(
+                    request_id=req_id,
+                    booking_id=new_booking_id,
+                    request_type="reschedule",
+                    booking_data=booking_data,
+                    initiator_id=message.from_user.id,
+                    comment=f"Перенос с #{old_booking_id}"
                 )
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="✅ Подтвердить перенос", callback_data=f"admin_resched_ok:{req_id}"),
-                        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_resched_reject:{req_id}")
-                    ]
-                ])
-                with suppress(Exception):
-                    await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
 
             await status.delete()
             user = await get_user_by_id(message.from_user.id)

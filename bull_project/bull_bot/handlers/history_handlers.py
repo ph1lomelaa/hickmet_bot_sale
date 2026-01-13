@@ -320,31 +320,39 @@ async def start_edit(call: CallbackQuery, state: FSMContext):
 
 # ====== ВСПОМОГАТЕЛЬНОЕ: Уведомление админам о запросе отмены ======
 async def notify_admins_cancel(booking, req_id: int, initiator_id: int):
-    admin_ids = await get_admin_ids()
-    if not admin_ids:
-        return
-    for admin_id in admin_ids:
-        # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
-        if admin_id != 8413412150:
-            continue
+    """Уведомление админов об отмене - использует HTTP API вместо aiogram"""
+    from bull_project.bull_bot.core.websocket_manager import notify_admins_about_request
 
-        settings = await get_admin_settings(admin_id)
-        if not settings or not settings.notify_cancel:
-            continue
-        text = _format_admin_booking(
-            booking,
-            "🛑 Запрос на отмену",
-            extra=f"Инициатор: {initiator_id}"
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"admin_cancel_ok:{req_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_cancel_reject:{req_id}")
-            ]
-        ])
-        try:
-            await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
-        except Exception as e:
-            print(f"⚠️ Не удалось отправить уведомление админу {admin_id}: {e}")
+    booking_data = {
+        'id': booking.id,
+        'package_name': booking.package_name,
+        'sheet_name': booking.sheet_name,
+        'sheet_row_number': booking.sheet_row_number,
+        'guest_last_name': booking.guest_last_name,
+        'guest_first_name': booking.guest_first_name,
+        'gender': booking.gender,
+        'client_phone': booking.client_phone,
+        'room_type': booking.room_type,
+        'meal_type': booking.meal_type,
+        'price': booking.price,
+        'amount_paid': booking.amount_paid,
+        'region': booking.region,
+        'departure_city': booking.departure_city,
+        'visa_status': booking.visa_status,
+        'avia': booking.avia,
+        'manager_name_text': booking.manager_name_text,
+        'comment': booking.comment,
+        'passport_warning': booking.passport_warning,
+        'created_at': booking.created_at
+    }
+
+    await notify_admins_about_request(
+        request_id=req_id,
+        booking_id=booking.id,
+        request_type="cancel",
+        booking_data=booking_data,
+        initiator_id=initiator_id,
+        comment=None
+    )
 
 # Отмена через текст "YES" отключена: теперь отмена только через админское подтверждение
