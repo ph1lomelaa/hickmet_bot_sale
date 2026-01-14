@@ -213,28 +213,35 @@ async def open_history_info(call: CallbackQuery, state: FSMContext):
     HISTORY_URL = "https://ph1lomelaa.github.io/book/history_v2.html"
 
     text = (
-        "<b>Перед открытием «Истории бронирования» важно:</b>\n\n"
-        "1) <b>ОТМЕНА БРОНИ</b>\n"
-        "После нажатия «Отменить» создаётся заявка администратору. Администратор подтверждает или отклоняет отмену. "
+        "1) После нажатия «Отменить» создаётся заявка администратору. Администратор подтверждает или отклоняет отмену. "
         "Результат (подтверждение/отклонение) придёт вам в чат.\n\n"
-        "2) <b>ПЕРЕНОС БРОНИ</b>\n"
-        "После нажатия «Перенести» необходимо указать комментарий. При необходимости вы можете выбрать дополнительных паломников "
+        "2) После нажатия «Перенести» необходимо указать комментарий. При необходимости вы можете выбрать дополнительных паломников "
         "(семья/группа), чтобы перенести их вместе. Далее заявка отправляется администратору на подтверждение или отклонение. "
         "Результат придёт вам в чат.\n\n"
-        "3) <b>ЗАГРУЗКА ПАСПОРТА</b>\n"
-        "Если у паломника не указан паспорт (подсвечено красным), вы можете загрузить паспорт через «Историю бронирования».\n\n"
-        "4) <b>НОМЕР ТЕЛЕФОНА</b>\n"
-        "Если у паломника не указан номер телефона (подсвечено красным), нажмите «Изменить» и добавьте номер телефона. "
+        "3) Если у паломника не указан паспорт, вы можете загрузить паспорт через «Историю бронирования».\n\n"
+        "4) Если у паломника не указан номер телефона, нажмите «Изменить» и добавьте номер телефона. "
         "Сейчас номер телефона является обязательным для оформления заявки."
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Открыть историю", web_app=WebAppInfo(url=HISTORY_URL))],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_booking")],
     ])
-    await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    msg = await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+    # После открытия истории менеджер обычно возвращается в чат позже.
+    # Делаем авто-очистку этого сообщения и возвращаем меню (best-effort).
+    asyncio.create_task(_auto_cleanup_history_info(call.bot, call.from_user.id, msg.message_id))
     with suppress(Exception):
         await call.answer()
+
+
+async def _auto_cleanup_history_info(bot, user_id: int, message_id: int):
+    await asyncio.sleep(20)
+    try:
+        with suppress(Exception):
+            await bot.delete_message(user_id, message_id)
+    except Exception:
+        return
 
 
 
