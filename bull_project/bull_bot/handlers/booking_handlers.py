@@ -139,7 +139,7 @@ async def _menu_reminder_after_create_booking(bot, user_id: int):
         role = await get_user_role(user_id)
         await bot.send_message(
             user_id,
-            "Если нужно вернуться в меню — нажмите кнопку ниже или отправьте /start.",
+            "🕋 Ассаламу алейкум! Выберите действие:",
             reply_markup=get_menu_by_role(role),
             parse_mode="HTML"
         )
@@ -205,13 +205,6 @@ async def cancel_booking(call: CallbackQuery, state: FSMContext):
         await call.answer()
 
 
-@router.callback_query(F.data == "main_menu")
-async def show_main_menu(call: CallbackQuery, state: FSMContext):
-    await state.clear()
-    role = await get_user_role(call.from_user.id)
-    await call.message.answer("🏠 Главное меню:", reply_markup=get_menu_by_role(role))
-    with suppress(Exception):
-        await call.answer()
 
 # В функции process_passport (строка ~100)
 

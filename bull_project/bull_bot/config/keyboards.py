@@ -11,7 +11,6 @@ def manager_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
         [InlineKeyboardButton(text="История бронирования", web_app=WebAppInfo(url=HISTORY_URL))],
-        [InlineKeyboardButton(text="☰ Меню", callback_data="main_menu")],
     ])
 
 def care_kb():
@@ -26,7 +25,6 @@ def care_kb():
         [InlineKeyboardButton(text="Список броней", web_app=WebAppInfo(url=CARE_BOOKINGS_URL))],
         [InlineKeyboardButton(text="Найти паломника", web_app=WebAppInfo(url=CARE_SEARCH_URL))],
         [InlineKeyboardButton(text="Списки по пакетам", web_app=WebAppInfo(url=CARE_PACKAGES_URL))],
-        [InlineKeyboardButton(text="☰ Меню", callback_data="main_menu")],
     ])
 
 def admin_kb():
@@ -44,7 +42,6 @@ def admin_kb():
         # У админа убираем быстрый переход "Перенос/Отмена" из меню (оставляем только уведомления/заявки через отдельные каналы)
         [InlineKeyboardButton(text="Запросы 4U", callback_data="admin_stats")],
         [InlineKeyboardButton(text="🔔 Настройки уведомлений", callback_data="admin_notify_menu")],
-        [InlineKeyboardButton(text="☰ Меню", callback_data="main_menu")],
     ])
 
 from aiogram.utils.keyboard import InlineKeyboardBuilder
