@@ -205,6 +205,38 @@ async def cancel_booking(call: CallbackQuery, state: FSMContext):
         await call.answer()
 
 
+@router.callback_query(F.data == "open_history_info")
+async def open_history_info(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    from aiogram.types import WebAppInfo
+
+    HISTORY_URL = "https://ph1lomelaa.github.io/book/history_v2.html"
+
+    text = (
+        "<b>Перед открытием «Истории бронирования» важно:</b>\n\n"
+        "1) <b>ОТМЕНА БРОНИ</b>\n"
+        "После нажатия «Отменить» создаётся заявка администратору. Администратор подтверждает или отклоняет отмену. "
+        "Результат (подтверждение/отклонение) придёт вам в чат.\n\n"
+        "2) <b>ПЕРЕНОС БРОНИ</b>\n"
+        "После нажатия «Перенести» необходимо указать комментарий. При необходимости вы можете выбрать дополнительных паломников "
+        "(семья/группа), чтобы перенести их вместе. Далее заявка отправляется администратору на подтверждение или отклонение. "
+        "Результат придёт вам в чат.\n\n"
+        "3) <b>ЗАГРУЗКА ПАСПОРТА</b>\n"
+        "Если у паломника не указан паспорт (подсвечено красным), вы можете загрузить паспорт через «Историю бронирования».\n\n"
+        "4) <b>НОМЕР ТЕЛЕФОНА</b>\n"
+        "Если у паломника не указан номер телефона (подсвечено красным), нажмите «Изменить» и добавьте номер телефона. "
+        "Сейчас номер телефона является обязательным для оформления заявки."
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Открыть историю", web_app=WebAppInfo(url=HISTORY_URL))],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_booking")],
+    ])
+    await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    with suppress(Exception):
+        await call.answer()
+
+
 
 # В функции process_passport (строка ~100)
 

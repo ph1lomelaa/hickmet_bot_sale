@@ -10,7 +10,7 @@ def manager_kb():
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
-        [InlineKeyboardButton(text="История бронирования", web_app=WebAppInfo(url=HISTORY_URL))],
+        [InlineKeyboardButton(text="История бронирования", callback_data="open_history_info")],
     ])
 
 def care_kb():
@@ -153,7 +153,7 @@ def comment_kb():
 def preview_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Сохранить", callback_data="save_booking")],
-        [InlineKeyboardButton(text="🔄 Заново", callback_data="main_menu")],
+        [InlineKeyboardButton(text="🔄 Заново", callback_data="create_booking")],
     ])
 
 def cancel_kb():

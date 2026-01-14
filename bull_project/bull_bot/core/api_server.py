@@ -308,6 +308,7 @@ class BookingSubmitIn(BaseModel):
 
 class RescheduleRequestIn(BookingSubmitIn):
     old_booking_id: int
+    old_booking_ids: List[int] = []
 
 
 class CancelRequestIn(BaseModel):
@@ -948,12 +949,28 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
     try:
         if not payload.pilgrims:
             return JSONResponse(status_code=400, content={"ok": False, "error": "Список паломников пуст"})
-        if len(payload.pilgrims) != 1:
-            return JSONResponse(status_code=400, content={"ok": False, "error": "Перенос возможен только для 1 паломника"})
 
-        old_booking = await get_booking_by_id(payload.old_booking_id)
-        if not old_booking:
-            return JSONResponse(status_code=404, content={"ok": False, "error": "Старая бронь не найдена"})
+        old_ids = []
+        if payload.old_booking_ids:
+            old_ids = [int(x) for x in payload.old_booking_ids if int(x) > 0]
+        if not old_ids:
+            old_ids = [int(payload.old_booking_id or 0)]
+        old_ids = [x for x in old_ids if x > 0]
+        if not old_ids:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "old_booking_id is required"})
+
+        if len(payload.pilgrims) != len(old_ids):
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "Количество паломников не совпадает с количеством переносимых броней"},
+            )
+
+        old_bookings = []
+        for oid in old_ids:
+            b = await get_booking_by_id(oid)
+            if not b:
+                return JSONResponse(status_code=404, content={"ok": False, "error": f"Старая бронь не найдена: #{oid}"})
+            old_bookings.append(b)
 
         manager_id = payload.manager_id or 0
         try:
@@ -968,72 +985,86 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
 
         sheet_name, package_name = normalize_sheet_and_package(payload.sheet_name, payload.package_name)
 
-        pilgrim = payload.pilgrims[0]
-        gender = (pilgrim.gender or "").strip().upper()
-        if gender not in ("M", "F"):
-            return JSONResponse(
-                status_code=400,
-                content={"ok": False, "error": "Укажите пол (M/F) для переноса"},
-            )
+        group_members = [
+            f"{(p.last_name or '').strip()} {(p.first_name or '').strip()}".strip() or "-"
+            for p in payload.pilgrims
+        ]
 
-        # Предупреждение по сроку / типу документа
-        passport_warning = None
-        document_type = pilgrim.document_type or "passport"
-        is_id_card = (document_type == "id_card")
-        if is_id_card:
-            passport_warning = "⚠️ Загружено удостоверение личности, требуется заграничный паспорт"
-        else:
-            passport_warning = check_passport_expiry(pilgrim.passport_expiry)
-            if not passport_warning and (pilgrim.passport_expiry is None or str(pilgrim.passport_expiry).strip() == "-" or str(pilgrim.passport_expiry).strip() == ""):
-                passport_warning = "⚠️ Срок действия не распознан"
+        new_booking_ids = []
+        for pilgrim in payload.pilgrims:
+            gender = (pilgrim.gender or "").strip().upper()
+            if gender not in ("M", "F"):
+                return JSONResponse(
+                    status_code=400,
+                    content={"ok": False, "error": "Укажите пол (M/F) для переноса"},
+                )
 
-        new_booking_data = {
-            "table_id": payload.table_id,
-            "sheet_name": sheet_name,
-            "package_name": package_name,
-            "region": payload.region or "-",
-            "departure_city": payload.departure_city or "-",
-            "source": payload.source or "-",
-            "amount_paid": str(payload.amount_paid or "0"),
-            "exchange_rate": str(payload.exchange_rate or "495"),
-            "discount": payload.discount or "-",
-            "contract_number": payload.contract_number or "-",
-            "visa_status": (payload.visa_status or "-").strip(),
-            "avia": payload.avia or "-",
-            "avia_request": payload.avia or "-",
-            "room_type": payload.room_type or "-",
-            "meal_type": payload.meal_type or "-",
-            "train": payload.train or "-",
-            "price": str(payload.price or "0"),
-            "comment": payload.comment or "-",
-            "client_phone": pilgrim.phone or "-",
-            "manager_name_text": payload.manager_name_text or "-",
-            "placement_type": payload.placement_type or "separate",
-            "guest_last_name": (pilgrim.last_name or "-").strip().upper(),
-            "guest_first_name": (pilgrim.first_name or "-").strip().upper(),
-            "gender": gender,
-            "date_of_birth": pilgrim.date_of_birth or "-",
-            "passport_num": (pilgrim.passport_num or "-").strip().upper(),
-            "passport_expiry": pilgrim.passport_expiry or "-",
-            "guest_iin": pilgrim.iin or "-",
-            "passport_image_path": pilgrim.passport_image_path,
-            "passport_warning": passport_warning,
-            "status": "pending_reschedule",
-            "sheet_row_number": None,
-            "group_members": [f"{(pilgrim.last_name or '').strip()} {(pilgrim.first_name or '').strip()}".strip() or "-"],
+            # Предупреждение по сроку / типу документа
+            passport_warning = None
+            document_type = pilgrim.document_type or "passport"
+            is_id_card = (document_type == "id_card")
+            if is_id_card:
+                passport_warning = "⚠️ Загружено удостоверение личности, требуется заграничный паспорт"
+            else:
+                passport_warning = check_passport_expiry(pilgrim.passport_expiry)
+                if not passport_warning and (pilgrim.passport_expiry is None or str(pilgrim.passport_expiry).strip() == "-" or str(pilgrim.passport_expiry).strip() == ""):
+                    passport_warning = "⚠️ Срок действия не распознан"
+
+            new_booking_data = {
+                "table_id": payload.table_id,
+                "sheet_name": sheet_name,
+                "package_name": package_name,
+                "region": payload.region or "-",
+                "departure_city": payload.departure_city or "-",
+                "source": payload.source or "-",
+                "amount_paid": str(payload.amount_paid or "0"),
+                "exchange_rate": str(payload.exchange_rate or "495"),
+                "discount": payload.discount or "-",
+                "contract_number": payload.contract_number or "-",
+                "visa_status": (payload.visa_status or "-").strip(),
+                "avia": payload.avia or "-",
+                "avia_request": payload.avia or "-",
+                "room_type": payload.room_type or "-",
+                "meal_type": payload.meal_type or "-",
+                "train": payload.train or "-",
+                "price": str(payload.price or "0"),
+                "comment": payload.comment or "-",
+                "client_phone": pilgrim.phone or "-",
+                "manager_name_text": payload.manager_name_text or "-",
+                "placement_type": payload.placement_type or "separate",
+                "guest_last_name": (pilgrim.last_name or "-").strip().upper(),
+                "guest_first_name": (pilgrim.first_name or "-").strip().upper(),
+                "gender": gender,
+                "date_of_birth": pilgrim.date_of_birth or "-",
+                "passport_num": (pilgrim.passport_num or "-").strip().upper(),
+                "passport_expiry": pilgrim.passport_expiry or "-",
+                "guest_iin": pilgrim.iin or "-",
+                "passport_image_path": pilgrim.passport_image_path,
+                "passport_warning": passport_warning,
+                "status": "pending_reschedule",
+                "sheet_row_number": None,
+                "group_members": group_members,
+            }
+
+            new_booking_ids.append(await add_booking_to_db(new_booking_data, manager_id))
+
+        # Один ApprovalRequest на всю группу (ссылается на первую новую бронь)
+        request_payload = {
+            "old_booking_ids": old_ids,
+            "new_booking_ids": new_booking_ids,
+            "comment": (payload.comment or "").strip() or None,
         }
-
-        new_booking_id = await add_booking_to_db(new_booking_data, manager_id)
         req_id = await create_approval_request(
-            new_booking_id,
+            new_booking_ids[0],
             "reschedule",
             manager_id,
-            comment=f"old:{payload.old_booking_id}",
+            comment=json.dumps(request_payload, ensure_ascii=False),
         )
-        await update_booking_fields(payload.old_booking_id, {"status": "pending_reschedule"})
+        for old_id in old_ids:
+            await update_booking_fields(old_id, {"status": "pending_reschedule"})
 
         # Отправляем уведомления админам о новой заявке на перенос (через websocket_manager)
-        new_booking = await get_booking_by_id(new_booking_id)
+        new_booking = await get_booking_by_id(new_booking_ids[0])
         if new_booking:
             booking_dict = {
                 "id": new_booking.id,
@@ -1053,18 +1084,19 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
                 "visa_status": new_booking.visa_status,
                 "avia": new_booking.avia,
                 "passport_warning": new_booking.passport_warning,
-                "old_booking_id": payload.old_booking_id,
+                "old_booking_ids": old_ids,
+                "group_members": group_members,
             }
             await notify_admins_about_request(
                 request_id=req_id,
-                booking_id=new_booking_id,
+                booking_id=new_booking.id,
                 request_type="reschedule",
                 booking_data=booking_dict,
                 initiator_id=manager_id,
-                comment=(payload.comment or "").strip() or f"Старая бронь: #{payload.old_booking_id}"
+                comment=(payload.comment or "").strip() or f"Старые брони: {', '.join([str(x) for x in old_ids])}"
             )
 
-        return {"ok": True, "booking_id": new_booking_id, "request_id": req_id}
+        return {"ok": True, "booking_ids": new_booking_ids, "request_id": req_id}
     except Exception as e:
         print(f"❌ Ошибка /api/bookings/reschedule/request: {e}")
         import traceback
@@ -1305,8 +1337,11 @@ async def update_booking_endpoint(booking_id: int, payload: BookingUpdateIn):
                 update_fields['client_phone'] = p.phone
 
             # Обновляем фото паспорта если передано
+            # Важно: пишем через update_fields, чтобы:
+            # 1) запись точно попала в один commit update_booking_fields()
+            # 2) в логах/ответе было видно, что обновлялось
             if p.passport_image_path:
-                await update_booking_passport_path(booking_id, p.passport_image_path)
+                update_fields["passport_image_path"] = p.passport_image_path
 
                 # 🔥 Проверяем тип документа
                 document_type = p.document_type or "passport"

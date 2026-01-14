@@ -1054,14 +1054,15 @@
 
     // --- ПАРСИНГ ТУРИСТОВ ИЗ URL ---
     const urlParams = new URLSearchParams(window.location.search);
-    const pRaw = urlParams.get('pilgrims');
-    const fillModeParam = (urlParams.get('fill_mode') || '').toLowerCase();
-    const countParam = parseInt((urlParams.get('count') || '').trim() || '0', 10);
-	    const managerParam = urlParams.get('manager_name_text');
-	    const modeParam = urlParams.get('mode');
-	    const editBookingId = urlParams.get('booking_id');
-	    const oldBookingId = urlParams.get('old_booking_id');
-	    const rescheduleCommentParam = urlParams.get('reschedule_comment');
+	    const pRaw = urlParams.get('pilgrims');
+	    const fillModeParam = (urlParams.get('fill_mode') || '').toLowerCase();
+	    const countParam = parseInt((urlParams.get('count') || '').trim() || '0', 10);
+		    const managerParam = urlParams.get('manager_name_text');
+		    const modeParam = urlParams.get('mode');
+		    const editBookingId = urlParams.get('booking_id');
+		    const oldBookingId = urlParams.get('old_booking_id');
+		    const oldBookingIdsParam = urlParams.get('old_booking_ids');
+		    const rescheduleCommentParam = urlParams.get('reschedule_comment');
 
     console.log("📥 URL параметры:");
     console.log("   pilgrims:", pRaw ? "есть данные" : "нет");
@@ -1069,9 +1070,21 @@
     console.log("   booking_id:", editBookingId);
     console.log("   old_booking_id:", oldBookingId);
 
-	    currentMode = modeParam || localStorage.getItem('mode') || 'create';
-	    currentBookingId = editBookingId || localStorage.getItem('edit_booking_id') || null;
-	    let currentOldBookingId = oldBookingId || localStorage.getItem('old_booking_id') || null;
+		    currentMode = modeParam || localStorage.getItem('mode') || 'create';
+		    currentBookingId = editBookingId || localStorage.getItem('edit_booking_id') || null;
+		    let currentOldBookingId = oldBookingId || localStorage.getItem('old_booking_id') || null;
+		    let currentOldBookingIds = [];
+		    try {
+		        if (oldBookingIdsParam) {
+		            currentOldBookingIds = JSON.parse(oldBookingIdsParam);
+		            localStorage.setItem('old_booking_ids', JSON.stringify(currentOldBookingIds));
+		        } else {
+		            const stored = localStorage.getItem('old_booking_ids');
+		            if (stored) currentOldBookingIds = JSON.parse(stored);
+		        }
+		    } catch (e) {
+		        currentOldBookingIds = [];
+		    }
 
 	    // Если комментарий переноса передали через URL — сохраняем (чтобы не потерялся при редиректах)
 	    if (rescheduleCommentParam) {
@@ -1310,26 +1323,27 @@
         const isEdit = localStorage.getItem('is_edit') === 'true';
         const editDataRaw = localStorage.getItem('edit_data');
 
-        if (isReschedule && rescheduleDataRaw) {
-            try {
-                const p = JSON.parse(rescheduleDataRaw);
-                pilgrimsData = [{
-                    name: `${p.last_name || '-'} ${p.first_name || '-'}`,
-                    last_name: p.last_name || "-",
-                    first_name: p.first_name || "-",
-                    phone: p.phone || "-",
-                    passport_num: p.passport_num || "-",
-                    date_of_birth: p.date_of_birth || "-",
-                    gender: p.gender || "M",
-                    passport_expiry: p.passport_expiry || "-",
-                    iin: p.iin || "-",
-                    passport_image_path: p.passport_image_path || null
-                }];
-                console.log("♻️ Загрузка переноса из localStorage:", pilgrimsData);
-                showStep1();
-                renderPilgrims();
-            } catch (e) {
-                console.error("❌ Ошибка парсинга переноса:", e);
+	        if (isReschedule && rescheduleDataRaw) {
+	            try {
+	                const parsed = JSON.parse(rescheduleDataRaw);
+	                const arr = Array.isArray(parsed) ? parsed : [parsed];
+	                pilgrimsData = arr.map(p => ({
+	                    name: `${p.last_name || '-'} ${p.first_name || '-'}`,
+	                    last_name: p.last_name || "-",
+	                    first_name: p.first_name || "-",
+	                    phone: p.phone || "-",
+	                    passport_num: p.passport_num || "-",
+	                    date_of_birth: p.date_of_birth || "-",
+	                    gender: p.gender || "M",
+	                    passport_expiry: p.passport_expiry || "-",
+	                    iin: p.iin || "-",
+	                    passport_image_path: p.passport_image_path || null
+	                }));
+	                console.log("♻️ Загрузка переноса из localStorage:", pilgrimsData);
+	                showStep1();
+	                renderPilgrims();
+	            } catch (e) {
+	                console.error("❌ Ошибка парсинга переноса:", e);
                 alert("Ошибка загрузки данных переноса");
             } finally {
                 localStorage.removeItem('is_reschedule');
@@ -1788,6 +1802,20 @@
         const price = document.getElementById('price').value;
         if (!pkg || pkg === "" || !price) return alert("Заполните Пакет и Цену!");
 
+        // Телефон обязателен при создании заявки (create/reschedule), иначе отдел заботы не сможет обработать
+        if (currentMode !== 'edit') {
+            const missing = (pilgrimsData || []).findIndex(p => {
+                const phone = String(p?.phone || '').trim();
+                return !phone || phone === '-' || phone.length < 6;
+            });
+            if (missing !== -1) {
+                const p = pilgrimsData[missing] || {};
+                const fio = `${p.last_name || '-'} ${p.first_name || '-'}`.trim();
+                alert(`Укажите номер телефона для паломника #${missing + 1} (${fio}).`);
+                return;
+            }
+        }
+
         // В режиме редактирования не показываем выбор размещения — сразу сохраняем изменения
         if (currentMode === 'edit') {
             finalSubmit();
@@ -1947,9 +1975,12 @@
 
 	            btn.innerHTML = btnText;
 
-	            if (currentMode === 'reschedule') {
-	                data.old_booking_id = currentOldBookingId ? parseInt(currentOldBookingId, 10) : null;
+	        if (currentMode === 'reschedule') {
+	            data.old_booking_id = currentOldBookingId ? parseInt(currentOldBookingId, 10) : null;
+	            if (Array.isArray(currentOldBookingIds) && currentOldBookingIds.length > 0) {
+	                data.old_booking_ids = currentOldBookingIds.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n));
 	            }
+	        }
 
 	            const res = await fetch(endpoint, {
 	                method,

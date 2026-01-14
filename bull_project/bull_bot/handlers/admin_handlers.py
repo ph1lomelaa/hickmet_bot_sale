@@ -265,13 +265,31 @@ async def admin_resched_ok(call: CallbackQuery):
     if not new_booking:
         await call.answer("Новая бронь не найдена", show_alert=True)
         return
-    old_id = None
-    if req.comment and req.comment.startswith("old:"):
+    old_ids = []
+    new_ids = []
+    manager_comment = None
+    if req.comment:
         try:
-            old_id = int(req.comment.split("old:")[1])
-        except:
-            old_id = None
-    old_booking = await get_booking_by_id(old_id) if old_id else None
+            import json as _json
+            parsed = _json.loads(req.comment)
+            if isinstance(parsed, dict) and ("old_booking_ids" in parsed or "new_booking_ids" in parsed):
+                old_ids = [int(x) for x in (parsed.get("old_booking_ids") or []) if int(x) > 0]
+                new_ids = [int(x) for x in (parsed.get("new_booking_ids") or []) if int(x) > 0]
+                manager_comment = (parsed.get("comment") or "").strip() or None
+        except Exception:
+            pass
+    if not new_ids:
+        new_ids = [new_booking.id]
+    if not old_ids and req.comment and req.comment.startswith("old:"):
+        try:
+            old_ids = [int(req.comment.split("old:")[1])]
+        except Exception:
+            old_ids = []
+    old_bookings = []
+    for oid in old_ids:
+        b = await get_booking_by_id(oid)
+        if b:
+            old_bookings.append(b)
 
     await call.message.edit_text("⏳ Обрабатываю перенос...", parse_mode="HTML")
 
@@ -294,52 +312,62 @@ async def admin_resched_ok(call: CallbackQuery):
         'manager_name_text': new_booking.manager_name_text,
         'train': new_booking.train,
     }
-    person = {
-        "Last Name": new_booking.guest_last_name,
-        "First Name": new_booking.guest_first_name,
-        "Gender": new_booking.gender,
-        "Date of Birth": new_booking.date_of_birth,
-        "Document Number": new_booking.passport_num,
-        "Document Expiration": new_booking.passport_expiry,
-        "IIN": new_booking.guest_iin,
-        "client_phone": new_booking.client_phone,
-        "passport_image_path": new_booking.passport_image_path
-    }
-    saved_rows = await save_group_booking([person], common_data, new_booking.placement_type or 'separate')
+    persons = []
+    for bid in new_ids:
+        nb = await get_booking_by_id(bid)
+        if not nb:
+            continue
+        persons.append({
+            "Last Name": nb.guest_last_name,
+            "First Name": nb.guest_first_name,
+            "Gender": nb.gender,
+            "Date of Birth": nb.date_of_birth,
+            "Document Number": nb.passport_num,
+            "Document Expiration": nb.passport_expiry,
+            "IIN": nb.guest_iin,
+            "client_phone": nb.client_phone,
+            "passport_image_path": nb.passport_image_path
+        })
+    saved_rows = await save_group_booking(persons, common_data, new_booking.placement_type or 'separate')
     if saved_rows:
-        await update_booking_row(new_booking.id, saved_rows[0])
-        await update_booking_fields(new_booking.id, {"status": "new"})
+        for i, bid in enumerate(new_ids):
+            if i < len(saved_rows):
+                await update_booking_row(bid, saved_rows[i])
+            await update_booking_fields(bid, {"status": "new"})
     else:
         # Rollback: откатываем статус старой брони и отклоняем запрос
-        if old_booking:
-            await update_booking_fields(old_booking.id, {"status": "new"})
+        for ob in old_bookings:
+            await update_booking_fields(ob.id, {"status": "new"})
         await update_approval_status(req_id, "rejected")
         await call.message.edit_text("❌ Не удалось записать новую бронь в таблицу", reply_markup=admin_kb(), parse_mode="HTML")
         return
 
     # Обработка старой брони
-    if old_booking:
-        if old_booking.sheet_row_number and old_booking.table_id and old_booking.sheet_name:
+    for idx, ob in enumerate(old_bookings):
+        if ob.sheet_row_number and ob.table_id and ob.sheet_name:
             try:
-                await clear_booking_in_sheets(old_booking.table_id, old_booking.sheet_name, old_booking.sheet_row_number, old_booking.package_name)
-            except: pass
-        try:
-            guest_name = f"{old_booking.guest_last_name} {old_booking.guest_first_name}"
-            await write_rescheduled_booking_red(old_booking.table_id, old_booking.sheet_name, old_booking.package_name, guest_name)
-        except: pass
-        await mark_booking_rescheduled(old_booking.id, comment=f"Перенесено в #{new_booking.id}")
+                await clear_booking_in_sheets(ob.table_id, ob.sheet_name, ob.sheet_row_number, ob.package_name)
+            except Exception:
+                pass
+        # Не пишем "перенос красным" снизу таблицы (по требованию)
+        target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
+        await mark_booking_rescheduled(ob.id, comment=f"Перенесено в #{target_new}")
 
     await update_approval_status(req_id, "approved")
 
     text = (
         f"♻️ <b>Перенос одобрен</b>\n"
-        f"Старый #{old_id or '-'} → Новый #{new_booking.id}\n"
         f"Пакет: {new_booking.package_name}\n"
-        f"Строка: {saved_rows[0]}"
+        f"Новые: {', '.join([str(x) for x in new_ids])}\n"
+        f"Старые: {', '.join([str(x) for x in old_ids]) if old_ids else '-'}\n"
+        f"Строки: {', '.join([str(x) for x in saved_rows])}"
     )
     await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="HTML")
     try:
-        await bot.send_message(req.initiator_id, f"✅ Перенос брони #{old_id} → #{new_booking.id} одобрен админом.")
+        if old_ids and len(old_ids) == len(new_ids) == 1:
+            await bot.send_message(req.initiator_id, f"✅ Перенос брони #{old_ids[0]} → #{new_ids[0]} одобрен админом.")
+        else:
+            await bot.send_message(req.initiator_id, f"✅ Перенос группы одобрен админом.\nНовые: {', '.join([str(x) for x in new_ids])}")
     except: pass
 
 
@@ -357,21 +385,37 @@ async def admin_resched_reject(call: CallbackQuery):
         await call.answer("Заявка не найдена или уже обработана", show_alert=True)
         return
     new_booking = await get_booking_by_id(req.booking_id)
-    old_id = None
-    if req.comment and req.comment.startswith("old:"):
+    old_ids = []
+    new_ids = []
+    if req.comment:
         try:
-            old_id = int(req.comment.split("old:")[1])
-        except:
-            old_id = None
-    if new_booking:
-        await update_booking_fields(new_booking.id, {"status": "cancelled"})
-    if old_id:
-        await update_booking_fields(old_id, {"status": "new"})
+            import json as _json
+            parsed = _json.loads(req.comment)
+            if isinstance(parsed, dict) and ("old_booking_ids" in parsed or "new_booking_ids" in parsed):
+                old_ids = [int(x) for x in (parsed.get("old_booking_ids") or []) if int(x) > 0]
+                new_ids = [int(x) for x in (parsed.get("new_booking_ids") or []) if int(x) > 0]
+        except Exception:
+            pass
+    if not new_ids and new_booking:
+        new_ids = [new_booking.id]
+    if not old_ids and req.comment and req.comment.startswith("old:"):
+        try:
+            old_ids = [int(req.comment.split("old:")[1])]
+        except Exception:
+            old_ids = []
+
+    for bid in new_ids:
+        await update_booking_fields(bid, {"status": "cancelled"})
+    for oid in old_ids:
+        await update_booking_fields(oid, {"status": "new"})
 
     await update_approval_status(req_id, "rejected")
     await call.message.edit_text("❌ Перенос отклонен.", reply_markup=admin_kb(), parse_mode="HTML")
     try:
-        await bot.send_message(req.initiator_id, f"❌ Перенос брони #{old_id} отклонен админом.")
+        if old_ids and len(old_ids) == 1:
+            await bot.send_message(req.initiator_id, f"❌ Перенос брони #{old_ids[0]} отклонен админом.")
+        else:
+            await bot.send_message(req.initiator_id, "❌ Перенос группы отклонен админом.")
     except: pass
 
 @router.message(Command("wipe_database_secret_123"))
