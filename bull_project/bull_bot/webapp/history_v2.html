@@ -723,7 +723,11 @@
             const data = await response.json();
             
             if (data.ok) {
-                allBookings = data.bookings || [];
+                // Не показываем "старые" перенесённые/отменённые брони, чтобы не было дублей в истории
+                allBookings = (data.bookings || []).filter(b => {
+                    const st = mapStatus(b.status);
+                    return st !== 'rescheduled' && st !== 'cancelled';
+                });
                 processPackagesData();
                 updateStats();
                 renderPackagesList();
@@ -1235,6 +1239,14 @@
                     .filter(Boolean);
 
                 try {
+                    // Чистим хвосты прошлого переноса, чтобы не тащить старые значения
+                    localStorage.removeItem('reschedule_comment');
+                    localStorage.removeItem('reschedule_data');
+                    localStorage.removeItem('old_booking_id');
+                    localStorage.removeItem('old_booking_ids');
+                    localStorage.removeItem('is_reschedule');
+                    localStorage.removeItem('mode');
+
                     localStorage.setItem('mode', 'reschedule');
                     localStorage.setItem('old_booking_id', String(booking.id));
                     localStorage.setItem('old_booking_ids', JSON.stringify(selectedIds));
