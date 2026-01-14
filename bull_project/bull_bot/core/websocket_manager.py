@@ -320,22 +320,25 @@ async def notify_admins_about_request(
             request_data=request_data
         )
 
-        # Кнопки для подтверждения/отклонения
+        # Кнопки для подтверждения/отклонения (callback_data должны совпадать с handlers/admin_handlers.py)
         button_text_confirm = "✅ Подтвердить отмену" if request_type == "cancel" else "✅ Подтвердить перенос"
         button_text_reject = "❌ Отклонить"
 
-        inline_keyboard = [
-            [
-                {
-                    "text": button_text_confirm,
-                    "callback_data": f"admin_{request_type}_ok:{request_id}"
-                },
-                {
-                    "text": button_text_reject,
-                    "callback_data": f"admin_{request_type}_reject:{request_id}"
-                }
-            ]
-        ]
+        if request_type == "cancel":
+            cb_ok = f"admin_cancel_ok:{request_id}"
+            cb_reject = f"admin_cancel_reject:{request_id}"
+        elif request_type == "reschedule":
+            # Исторически в боте используются admin_resched_ok/admin_resched_reject
+            cb_ok = f"admin_resched_ok:{request_id}"
+            cb_reject = f"admin_resched_reject:{request_id}"
+        else:
+            cb_ok = f"admin_{request_type}_ok:{request_id}"
+            cb_reject = f"admin_{request_type}_reject:{request_id}"
+
+        inline_keyboard = [[
+            {"text": button_text_confirm, "callback_data": cb_ok},
+            {"text": button_text_reject, "callback_data": cb_reject},
+        ]]
 
         reply_markup = {"inline_keyboard": inline_keyboard}
 

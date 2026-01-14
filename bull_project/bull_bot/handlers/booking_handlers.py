@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from pytesseract.pytesseract import LOGGER
 from contextlib import suppress
+import asyncio
 
 # --- ИМПОРТЫ ПРОЕКТА ---
 from bull_project.bull_bot.config.constants import (
@@ -129,6 +130,22 @@ async def start_booking(call: CallbackQuery, state: FSMContext):
     if not data.get('is_reschedule'): await state.clear()
     await call.message.answer("Сколько паломников? (Число):", parse_mode="HTML")
     await state.set_state(BookingFlow.waiting_count)
+    asyncio.create_task(_menu_reminder_after_create_booking(call.bot, call.from_user.id))
+
+
+async def _menu_reminder_after_create_booking(bot, user_id: int):
+    await asyncio.sleep(360)
+    try:
+        role = await get_user_role(user_id)
+        await bot.send_message(
+            user_id,
+            "Если нужно вернуться в меню — нажмите кнопку ниже или отправьте /start.",
+            reply_markup=get_menu_by_role(role),
+            parse_mode="HTML"
+        )
+    except Exception:
+        # best-effort reminder; ignore any delivery issues
+        return
 
 @router.message(BookingFlow.waiting_count)
 async def input_count(message: Message, state: FSMContext):
@@ -139,24 +156,21 @@ async def input_count(message: Message, state: FSMContext):
     total = int(message.text)
     await state.update_data(total_pilgrims=total)
 
+    # 1) Telegram flow (старый сценарий)
+    # 2) WebApp flow (сразу открываем форму, без дополнительного шага/сообщения)
+    url = get_webapp_url({"fill_mode": "form", "count": str(total)})
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Заполнить в Telegram", callback_data="fill_method:tg")],
-        [InlineKeyboardButton(text="Заполнить в форме", callback_data="fill_method:form")],
+        [InlineKeyboardButton(text="Заполнить в форме", web_app=WebAppInfo(url=url))],
     ])
 
     await message.answer(
         f"✅ Паломников: <b>{total}</b>\n\n"
-        "<b>Выберите способ заполнения:</b>\n\n"
-        "• <b>Telegram</b> — отправляете паспорта/имена по одному в чат.\n"
-        "• <b>WebApp</b> — откроется форма: загрузите все паспорта разом и заполните там.\n\n"
-        "<b>Важно для WebApp:</b>\n"
-        "• INF/CHD можно загрузить вместе со всеми — отметьте под именем <b>INF</b> или <b>CHD</b> для корректной записи.\n"
-        "• Если имя/фамилия распознаны неверно — их можно исправить в форме.\n"
-        "• После загрузки паспортов нажмите «Начать обработку».\n"
-        "• Если у части паломников нет паспортов — заполните их вручную (количество менять не нужно).",
+        "<b>Выберите способ заполнения:</b>",
         parse_mode="HTML",
         reply_markup=kb
     )
+    # WebApp Data ловим отдельным хендлером (F.web_app_data), state здесь не критичен
     await state.set_state(BookingFlow.choosing_fill_method)
 
 
@@ -181,36 +195,21 @@ async def choose_fill_tg(call: CallbackQuery, state: FSMContext):
         await call.answer()
 
 
-@router.callback_query(BookingFlow.choosing_fill_method, F.data == "fill_method:form")
-async def choose_fill_form(call: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    total = int(data.get("total_pilgrims") or 0)
-    if total <= 0:
-        await call.message.answer("❌ Не нашла количество паломников. Начните заново.")
-        await state.clear()
-        return
-
-    url = get_webapp_url({"fill_mode": "form", "count": str(total)})
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Открыть форму", web_app=WebAppInfo(url=url))],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="create_booking")],
-    ])
-
-    await call.message.answer(
-        "Откройте форму и загрузите паспорта там 👇",
-        reply_markup=kb
-    )
-    await state.set_state(BookingFlow.waiting_web_app_data)
-    with suppress(Exception):
-        await call.answer()
-
-
 @router.callback_query(F.data == "cancel_booking")
 async def cancel_booking(call: CallbackQuery, state: FSMContext):
     await state.clear()
     user_id = call.from_user.id
     role = await get_user_role(user_id)
     await call.message.answer("❌ Отменено.\n\n<b>Выберите действие:</b>", reply_markup=get_menu_by_role(role), parse_mode="HTML")
+    with suppress(Exception):
+        await call.answer()
+
+
+@router.callback_query(F.data == "main_menu")
+async def show_main_menu(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    role = await get_user_role(call.from_user.id)
+    await call.message.answer("🏠 Главное меню:", reply_markup=get_menu_by_role(role))
     with suppress(Exception):
         await call.answer()
 
@@ -706,6 +705,8 @@ async def handle_webapp_data(message: Message, state: FSMContext):
     import json
     form = json.loads(message.web_app_data.data)  # данные из WebApp
 
+    print(f"📩 [WEB_APP_DATA] from={message.from_user.id} data={form}")
+
     # --------------------
     # Заявки на отмену/перенос (только через админа)
     # --------------------
@@ -788,30 +789,72 @@ async def handle_webapp_data(message: Message, state: FSMContext):
         success_msg = "✅ Бронь успешно создана!"
 
         if mode == "reschedule_request":
-            # Заявка на перенос создана на API, теперь уведомляем админов в Telegram
+            # Заявка на перенос создана на API, уведомляем админов (websocket + Telegram если бот доступен)
             req_id = int(form.get("request_id") or 0)
             booking_id = int(form.get("booking_id") or 0)
             if req_id > 0 and booking_id > 0:
                 b = await get_booking_by_id(booking_id)
                 if b:
-                    admin_ids = await get_admin_ids()
-                    for admin_id in admin_ids:
-                        settings = await get_admin_settings(admin_id)
-                        if not settings or not settings.notify_reschedule:
-                            continue
-                        text = _format_admin_booking(
-                            b,
-                            "♻️ Запрос на перенос",
-                            extra=f"Заявка #{req_id}\nИнициатор: {message.from_user.id}"
+                    # 1) Websocket notify (admin webapp)
+                    try:
+                        from bull_project.bull_bot.core.websocket_manager import notify_admins_about_request
+                        booking_data = {
+                            'id': b.id,
+                            'package_name': b.package_name,
+                            'sheet_name': b.sheet_name,
+                            'sheet_row_number': b.sheet_row_number,
+                            'guest_last_name': b.guest_last_name,
+                            'guest_first_name': b.guest_first_name,
+                            'gender': b.gender,
+                            'client_phone': b.client_phone,
+                            'room_type': b.room_type,
+                            'meal_type': b.meal_type,
+                            'price': b.price,
+                            'amount_paid': b.amount_paid,
+                            'region': b.region,
+                            'departure_city': b.departure_city,
+                            'visa_status': b.visa_status,
+                            'avia': b.avia,
+                            'manager_name_text': b.manager_name_text,
+                            'comment': b.comment,
+                            'passport_warning': b.passport_warning,
+                            'created_at': b.created_at
+                        }
+                        await notify_admins_about_request(
+                            request_id=req_id,
+                            booking_id=b.id,
+                            request_type="reschedule",
+                            booking_data=booking_data,
+                            initiator_id=message.from_user.id,
+                            comment=(b.comment or "-")
                         )
-                        kb = InlineKeyboardMarkup(inline_keyboard=[
-                            [
-                                InlineKeyboardButton(text="✅ Подтвердить перенос", callback_data=f"admin_resched_ok:{req_id}"),
-                                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_resched_reject:{req_id}")
-                            ]
-                        ])
-                        with suppress(Exception):
-                            await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
+                    except Exception as e:
+                        print(f"⚠️ notify_admins_about_request failed (reschedule): {e}")
+
+                    # 2) Telegram notify (если bot инициализирован)
+                    if not bot:
+                        print("⚠️ Bot is None -> Telegram admin notify skipped")
+                    else:
+                        admin_ids = await get_admin_ids()
+                        if not admin_ids:
+                            print("⚠️ No admins in DB (role=admin) -> Telegram notify skipped")
+                        for admin_id in admin_ids:
+                            settings = await get_admin_settings(admin_id)
+                            if not settings or not settings.notify_reschedule:
+                                continue
+                            text = _format_admin_booking(
+                                b,
+                                "♻️ Запрос на перенос",
+                                extra=f"Заявка #{req_id}\nИнициатор: {message.from_user.id}"
+                            )
+                            kb = InlineKeyboardMarkup(inline_keyboard=[
+                                [
+                                    InlineKeyboardButton(text="✅ Подтвердить перенос", callback_data=f"admin_resched_ok:{req_id}"),
+                                    InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_resched_reject:{req_id}")
+                                ]
+                            ])
+                            with suppress(Exception):
+                                await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
             success_msg = "✅ Заявка на перенос отправлена администратору. Ожидайте подтверждения."
 
         elif mode == "edit":

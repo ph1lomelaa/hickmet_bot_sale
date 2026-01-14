@@ -426,14 +426,9 @@ async def toggle_notify_resched(message: Message):
 @router.callback_query(F.data == "admin_menu")
 async def show_admin_main_menu(call: CallbackQuery):
     """Главное админское меню"""
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Аналитика", web_app=WebAppInfo(url=ADMIN_PANEL_URL))],
-        [InlineKeyboardButton(text="Список броней", web_app=WebAppInfo(url=ADMIN_BOOKINGS_URL))],
-        [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
-        [InlineKeyboardButton(text="Запросы 4U", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="Перенос/Отмена", web_app=WebAppInfo(url=ADMIN_REQUESTS_URL))],
-        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="admin_notify_menu")],
-    ])
+    # Используем единое меню из config/keyboards.py, чтобы кнопки не "пропадали" после возврата
+    from bull_project.bull_bot.config.keyboards import admin_kb
+    kb = admin_kb()
 
     await call.message.edit_text(
         "<b>🕋 Ассаламу алейкум! Админ Меню</b>",
