@@ -310,6 +310,12 @@ class RescheduleRequestIn(BookingSubmitIn):
     old_booking_id: int
 
 
+class CancelRequestIn(BaseModel):
+    booking_id: int
+    comment: str
+    initiator_id: Optional[int] = None
+
+
 class BookingUpdateIn(BaseModel):
     pilgrims: List[PilgrimData] = []
     # Пакет/дата не редактируем через PATCH, но можем передать для валидации
@@ -1026,15 +1032,28 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
         )
         await update_booking_fields(payload.old_booking_id, {"status": "pending_reschedule"})
 
-        # Отправляем уведомления админам о новой заявке на перенос
+        # Отправляем уведомления админам о новой заявке на перенос (через websocket_manager)
         new_booking = await get_booking_by_id(new_booking_id)
         if new_booking:
             booking_dict = {
+                "id": new_booking.id,
                 "package_name": new_booking.package_name,
+                "sheet_name": new_booking.sheet_name,
+                "sheet_row_number": new_booking.sheet_row_number,
                 "guest_last_name": new_booking.guest_last_name,
                 "guest_first_name": new_booking.guest_first_name,
                 "client_phone": new_booking.client_phone,
                 "manager_name_text": new_booking.manager_name_text,
+                "room_type": new_booking.room_type,
+                "meal_type": new_booking.meal_type,
+                "price": new_booking.price,
+                "amount_paid": new_booking.amount_paid,
+                "region": new_booking.region,
+                "departure_city": new_booking.departure_city,
+                "visa_status": new_booking.visa_status,
+                "avia": new_booking.avia,
+                "passport_warning": new_booking.passport_warning,
+                "old_booking_id": payload.old_booking_id,
             }
             await notify_admins_about_request(
                 request_id=req_id,
@@ -1042,12 +1061,71 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
                 request_type="reschedule",
                 booking_data=booking_dict,
                 initiator_id=manager_id,
-                comment=f"Старая бронь: #{payload.old_booking_id}"
+                comment=(payload.comment or "").strip() or f"Старая бронь: #{payload.old_booking_id}"
             )
 
         return {"ok": True, "booking_id": new_booking_id, "request_id": req_id}
     except Exception as e:
         print(f"❌ Ошибка /api/bookings/reschedule/request: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/api/bookings/cancel/request")
+async def api_bookings_cancel_request(payload: CancelRequestIn):
+    """
+    Создание заявки на отмену (без прямой отмены).
+    """
+    try:
+        booking_id = int(payload.booking_id or 0)
+        comment = (payload.comment or "").strip()
+        initiator_id = int(payload.initiator_id or 0)
+
+        if booking_id <= 0:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "booking_id is required"})
+        if not comment:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "comment is required"})
+
+        booking = await get_booking_by_id(booking_id)
+        if not booking:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "booking not found"})
+
+        req_id = await create_approval_request(booking.id, "cancel", initiator_id, comment=comment)
+        await update_booking_fields(booking.id, {"status": "pending_cancel"})
+
+        booking_dict = {
+            "id": booking.id,
+            "package_name": booking.package_name,
+            "sheet_name": booking.sheet_name,
+            "sheet_row_number": booking.sheet_row_number,
+            "guest_last_name": booking.guest_last_name,
+            "guest_first_name": booking.guest_first_name,
+            "client_phone": booking.client_phone,
+            "manager_name_text": booking.manager_name_text,
+            "room_type": booking.room_type,
+            "meal_type": booking.meal_type,
+            "price": booking.price,
+            "amount_paid": booking.amount_paid,
+            "region": booking.region,
+            "departure_city": booking.departure_city,
+            "visa_status": booking.visa_status,
+            "avia": booking.avia,
+            "passport_warning": booking.passport_warning,
+        }
+
+        await notify_admins_about_request(
+            request_id=req_id,
+            booking_id=booking.id,
+            request_type="cancel",
+            booking_data=booking_dict,
+            initiator_id=initiator_id,
+            comment=comment,
+        )
+
+        return {"ok": True, "booking_id": booking.id, "request_id": req_id}
+    except Exception as e:
+        print(f"❌ Ошибка /api/bookings/cancel/request: {e}")
         import traceback
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
