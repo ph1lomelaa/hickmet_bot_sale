@@ -364,10 +364,19 @@ async def admin_resched_ok(call: CallbackQuery):
     )
     await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="HTML")
     try:
+        group_members = (new_booking.group_members or []) if new_booking else []
         if old_ids and len(old_ids) == len(new_ids) == 1:
-            await bot.send_message(req.initiator_id, f"✅ Перенос брони #{old_ids[0]} → #{new_ids[0]} одобрен админом.")
+            pilgrim_name = (group_members[0] if group_members else f"{new_booking.guest_last_name} {new_booking.guest_first_name}").strip()
+            await bot.send_message(
+                req.initiator_id,
+                f"✅ Перенос паломника(-ов) \"{pilgrim_name}\" одобрен админом.\nНовые: {new_ids[0]}"
+            )
         else:
-            await bot.send_message(req.initiator_id, f"✅ Перенос группы одобрен админом.\nНовые: {', '.join([str(x) for x in new_ids])}")
+            names = ", ".join([str(x).strip() for x in group_members if str(x).strip()]) or "-"
+            await bot.send_message(
+                req.initiator_id,
+                f"✅ Перенос группы одобрен админом.\nПаломники: {names}\nНовые: {', '.join([str(x) for x in new_ids])}"
+            )
     except: pass
 
 

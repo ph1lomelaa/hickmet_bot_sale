@@ -177,7 +177,11 @@ def format_admin_notification(
 ) -> str:
     guest_last_name = booking_data.get('guest_last_name', '')
     guest_first_name = booking_data.get('guest_first_name', '')
-    guest_name = f"{guest_last_name} {guest_first_name}".strip() or "-"
+    group_members = booking_data.get("group_members") or []
+    if isinstance(group_members, list) and len(group_members) > 0:
+        guest_name = ", ".join([str(x).strip() for x in group_members if str(x).strip()]) or "-"
+    else:
+        guest_name = f"{guest_last_name} {guest_first_name}".strip() or "-"
 
     # Заголовок в зависимости от типа
     if notification_type == "new_booking":
