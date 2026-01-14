@@ -723,10 +723,10 @@
             const data = await response.json();
             
             if (data.ok) {
-                // Не показываем "старые" перенесённые/отменённые брони, чтобы не было дублей в истории
+                // Не показываем "старые" перенесённые брони, чтобы не было дублей в истории
                 allBookings = (data.bookings || []).filter(b => {
                     const st = mapStatus(b.status);
-                    return st !== 'rescheduled' && st !== 'cancelled';
+                    return st !== 'rescheduled';
                 });
                 processPackagesData();
                 updateStats();
