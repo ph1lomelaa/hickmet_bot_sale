@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📆 Выбрать дату для паломника</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="config.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg-primary: #FAF8F5;
+            --bg-secondary: #F5F1EB;
+            --bg-card: #FFFFFF;
+            --accent-brown: #9B8474;
+            --accent-dark: #6B5D52;
+            --accent-light: #C4B5A7;
+            --text-primary: #3D3935;
+            --text-secondary: #8A827C;
+            --border-color: #E8E3DC;
+            --shadow-soft: 0 4px 12px rgba(107, 93, 82, 0.08);
+            --shadow-medium: 0 8px 24px rgba(107, 93, 82, 0.12);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            padding: 20px;
+            padding-bottom: 60px;
+            min-height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent-dark);
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 14px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 14px;
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 16px;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-brown);
+            background-color: #FFFFFF;
+        }
+
+        .search-btn {
+            padding: 12px 20px;
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(107, 93, 82, 0.2);
+        }
+
+        .booking-card {
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow-soft);
+            transition: all 0.3s ease;
+        }
+
+        .booking-card:hover {
+            box-shadow: var(--shadow-medium);
+            border-color: var(--accent-light);
+            transform: translateY(-2px);
+        }
+
+        .booking-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .booking-name {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-dark);
+        }
+
+        .booking-info {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .info-badge {
+            padding: 6px 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .pilgrim-list {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .pilgrim-item {
+            font-size: 14px;
+            color: var(--text-primary);
+            padding: 4px 0;
+        }
+
+        .select-date-btn {
+            width: 100%;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 12px;
+        }
+
+        .select-date-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(46, 125, 50, 0.4);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📆 Паломник выбрал дату</h1>
+        <p>Выберите паломника из OPEN DATE</p>
+    </div>
+
+    <div class="search-box">
+        <input
+            type="text"
+            class="search-input"
+            id="searchInput"
+            placeholder="Поиск по имени, телефону..."
+            onkeyup="handleSearch()"
+        >
+        <button class="search-btn" onclick="loadBookings()">🔍</button>
+    </div>
+
+    <div id="bookings-container">
+        <div class="loading">⏳ Загрузка...</div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            window.history.back();
+        });
+
+        let allBookings = [];
+
+	        async function loadBookings() {
+            const container = document.getElementById('bookings-container');
+            container.innerHTML = '<div class="loading">⏳ Загрузка...</div>';
+
+	            try {
+	                const managerId = tg.initDataUnsafe?.user?.id || 0;
+	                const qs = managerId ? `?manager_id=${encodeURIComponent(String(managerId))}` : '';
+	                const response = await fetch(`${API_URL}/api/open-date/list${qs}`, {
+	                    headers: {
+	                        'ngrok-skip-browser-warning': '1'
+	                    }
+	                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    allBookings = data.bookings || [];
+                    renderBookings(allBookings);
+                } else {
+                    throw new Error(data.error || 'Ошибка загрузки');
+                }
+
+            } catch (error) {
+                console.error('Ошибка:', error);
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">❌</div>
+                        <p>Ошибка загрузки данных</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderBookings(bookings) {
+            const container = document.getElementById('bookings-container');
+
+            if (!bookings || bookings.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <p>Нет паломников на OPEN DATE</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = bookings.map(booking => `
+                <div class="booking-card">
+                    <div class="booking-header">
+                        <div class="booking-name">${getFirstPilgrimName(booking)}</div>
+                    </div>
+
+                    <div class="booking-info">
+                        ${booking.room_type ? `<span class="info-badge">🏨 ${booking.room_type}</span>` : ''}
+                        ${booking.meal_type ? `<span class="info-badge">🍽️ ${booking.meal_type}</span>` : ''}
+                        ${booking.price ? `<span class="info-badge">💰 ${booking.price}</span>` : ''}
+                        ${booking.client_phone ? `<span class="info-badge">📞 ${booking.client_phone}</span>` : ''}
+                        <span class="info-badge">📅 ${formatDate(booking.created_at)}</span>
+                    </div>
+
+                    ${booking.pilgrim_data && booking.pilgrim_data.length > 1 ? `
+                        <div class="pilgrim-list">
+                            <strong>Паломники (${booking.pilgrim_data.length}):</strong>
+                            ${booking.pilgrim_data.map(p => `
+                                <div class="pilgrim-item">👤 ${p.last_name} ${p.first_name} (${p.gender})</div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    ${booking.comment ? `<div style="margin-top: 8px; font-size: 14px; color: var(--text-secondary);">💬 ${booking.comment}</div>` : ''}
+
+                    <button class="select-date-btn" onclick="selectDateFor(${booking.id})">
+                        📆 ВЫБРАТЬ ДАТУ
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function getFirstPilgrimName(booking) {
+            if (booking.pilgrim_data && booking.pilgrim_data.length > 0) {
+                const p = booking.pilgrim_data[0];
+                return `${p.last_name} ${p.first_name}`;
+            }
+            return 'Неизвестно';
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
+
+        function handleSearch() {
+            const query = document.getElementById('searchInput').value.toLowerCase().trim();
+
+            if (!query) {
+                renderBookings(allBookings);
+                return;
+            }
+
+            const filtered = allBookings.filter(booking => {
+                // Поиск по телефону
+                if (booking.client_phone && booking.client_phone.toLowerCase().includes(query)) {
+                    return true;
+                }
+
+                // Поиск по именам паломников
+                if (booking.pilgrim_data) {
+                    for (const p of booking.pilgrim_data) {
+                        if (p.last_name?.toLowerCase().includes(query) ||
+                            p.first_name?.toLowerCase().includes(query) ||
+                            p.passport_num?.toLowerCase().includes(query) ||
+                            p.iin?.toLowerCase().includes(query)) {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            });
+
+            renderBookings(filtered);
+        }
+
+        async function selectDateFor(bookingId) {
+            try {
+                // Получаем детали бронирования
+                const response = await fetch(`${API_URL}/api/open-date/${bookingId}`, {
+                    headers: {
+                        'ngrok-skip-browser-warning': '1'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки данных бронирования');
+                }
+
+                const data = await response.json();
+                const booking = data.booking;
+
+                // Подготавливаем данные для передачи в форму создания брони
+                const pilgrimsData = booking.pilgrim_data.map(p => ({
+                    last_name: p.last_name,
+                    first_name: p.first_name,
+                    gender: p.gender,
+                    date_of_birth: p.date_of_birth || '',
+                    passport_num: p.passport_num || '',
+                    passport_expiry: p.passport_expiry || '',
+                    iin: p.iin || ''
+                }));
+
+                // Переходим на форму создания брони с предзаполненными данными
+                const params = new URLSearchParams({
+                    open_date_id: bookingId,
+                    pilgrims: JSON.stringify(pilgrimsData),
+                    phone: booking.client_phone || '',
+                    room_type: booking.room_type || '',
+                    meal_type: booking.meal_type || '',
+                    price: booking.price || '',
+                    comment: booking.comment || '',
+                    mode: 'from_open_date'
+                });
+
+                window.location.href = `index.html?${params.toString()}`;
+
+            } catch (error) {
+                console.error('Ошибка:', error);
+                tg.showAlert(`❌ Ошибка: ${error.message}`);
+            }
+        }
+
+        // Загрузка при открытии страницы
+        loadBookings();
+    </script>
+</body>
+</html>

@@ -7,10 +7,12 @@ def manager_kb():
     """Меню для Менеджера (Продажи)"""
     from aiogram.types import WebAppInfo
     HISTORY_URL = "https://ph1lomelaa.github.io/book/history_v2.html"
+    OPEN_DATE_URL = "https://ph1lomelaa.github.io/book/open_date.html"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
         [InlineKeyboardButton(text="История бронирования", callback_data="open_history_info")],
+        [InlineKeyboardButton(text="OPEN DATE", web_app=WebAppInfo(url=OPEN_DATE_URL))],
     ])
 
 def care_kb():

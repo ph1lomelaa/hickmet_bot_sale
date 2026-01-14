@@ -568,6 +568,7 @@
         <div class="filter-tab active" data-filter="all" onclick="setStatusFilter('all')">Все</div>
         <div class="filter-tab" data-filter="active" onclick="setStatusFilter('active')">Активные</div>
         <div class="filter-tab" data-filter="cancelled" onclick="setStatusFilter('cancelled')">Отмененные</div>
+        <div class="filter-tab" data-filter="open_date" onclick="openOpenDate()">OPEN DATE</div>
     </div>
     
     <div class="packages-filter">
@@ -1520,6 +1521,11 @@
             closeEditModal();
         }
     });
+
+    function openOpenDate() {
+        // Открываем страницу OPEN DATE
+        window.location.href = 'open_date.html';
+    }
 
     init();
 </script>

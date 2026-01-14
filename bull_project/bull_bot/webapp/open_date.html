@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPEN DATE</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="config.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg-primary: #FAF8F5;
+            --bg-secondary: #F5F1EB;
+            --bg-card: #FFFFFF;
+            --accent-brown: #9B8474;
+            --accent-dark: #6B5D52;
+            --accent-light: #C4B5A7;
+            --text-primary: #3D3935;
+            --text-secondary: #8A827C;
+            --border-color: #E8E3DC;
+            --shadow-soft: 0 4px 12px rgba(107, 93, 82, 0.08);
+            --shadow-medium: 0 8px 24px rgba(107, 93, 82, 0.12);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            padding: 20px;
+            padding-bottom: 60px;
+            min-height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent-dark);
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .options-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .option-card {
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-soft);
+            text-align: center;
+        }
+
+        .option-card:hover {
+            border-color: var(--accent-brown);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-medium);
+        }
+
+        .option-card:active {
+            transform: translateY(0);
+        }
+
+        .option-icon { display: none; }
+
+        .option-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent-dark);
+            margin-bottom: 8px;
+        }
+
+        .option-description {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .info-box {
+            background: linear-gradient(135deg, #FFF5E0 0%, #FFE8C0 100%);
+            border: 2px solid #FFD18C;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .info-box p {
+            font-size: 14px;
+            color: #8A5B00;
+            margin: 0;
+        }
+
+        .info-box strong {
+            color: #6B4500;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>OPEN DATE</h1>
+        <p>Выберите действие</p>
+    </div>
+
+    <div class="info-box">
+        <p><strong>OPEN DATE</strong> - бронирование без конкретной даты.<br>Паломник может выбрать дату позже.</p>
+    </div>
+
+    <div class="options-container">
+        <div class="option-card" onclick="goToFillForm()">
+            <div class="option-icon"></div>
+            <div class="option-title">Заполнить паломника на OPEN DATE</div>
+            <div class="option-description">
+                Записать нового паломника без выбора конкретной даты.
+                Данные будут сохранены в Certificate 2025.
+            </div>
+        </div>
+
+        <div class="option-card" onclick="goToSelectDate()">
+            <div class="option-icon"></div>
+            <div class="option-title">Паломник выбрал дату</div>
+            <div class="option-description">
+                Выбрать паломника из OPEN DATE и назначить ему дату.
+                Будет создана стандартная бронь.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        // Устанавливаем кнопку "Назад"
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            tg.close();
+        });
+
+        function goToFillForm() {
+            // Переход на форму заполнения паломника
+            window.location.href = 'open_date_form.html';
+        }
+
+        function goToSelectDate() {
+            // Переход на страницу выбора паломника
+            window.location.href = 'open_date_select.html';
+        }
+    </script>
+</body>
+</html>

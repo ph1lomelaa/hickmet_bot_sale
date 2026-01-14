@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>✍️ Заполнить OPEN DATE</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="config.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg-primary: #FAF8F5;
+            --bg-secondary: #F5F1EB;
+            --bg-card: #FFFFFF;
+            --accent-brown: #9B8474;
+            --accent-dark: #6B5D52;
+            --accent-light: #C4B5A7;
+            --text-primary: #3D3935;
+            --text-secondary: #8A827C;
+            --border-color: #E8E3DC;
+            --shadow-soft: 0 4px 12px rgba(107, 93, 82, 0.08);
+            --shadow-medium: 0 8px 24px rgba(107, 93, 82, 0.12);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            padding: 20px;
+            padding-bottom: 60px;
+            min-height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent-dark);
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        label {
+            display: block;
+            margin-top: 18px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent-brown);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        select, input, textarea {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 14px;
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 16px;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(107, 93, 82, 0.04);
+        }
+
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--accent-brown);
+            background-color: #FFFFFF;
+            box-shadow: 0 4px 12px rgba(155, 132, 116, 0.15);
+        }
+
+        .pilgrim-card {
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .pilgrim-header {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-dark);
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .col {
+            flex: 1;
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        .radio-group input {
+            display: none;
+        }
+
+        .radio-group label {
+            flex: 1;
+            padding: 14px 20px;
+            text-align: center;
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 14px;
+            font-weight: 600;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: var(--text-secondary);
+            margin: 0;
+            text-transform: none;
+            letter-spacing: 0;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .radio-group label:hover {
+            border-color: var(--accent-light);
+            transform: translateY(-2px);
+        }
+
+        .radio-group input:checked + label {
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%);
+            color: white;
+            border-color: var(--accent-dark);
+            box-shadow: 0 6px 16px rgba(107, 93, 82, 0.25);
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 18px 24px;
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(107, 93, 82, 0.3);
+            margin-top: 24px;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(107, 93, 82, 0.4);
+        }
+
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .info-box {
+            background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%);
+            border: 2px solid #81C784;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .info-box p {
+            font-size: 14px;
+            color: #2E7D32;
+            margin: 0;
+        }
+
+        /* selector removed: count is entered manually */
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✍️ Заполнить OPEN DATE</h1>
+        <p>Бронирование без конкретной даты</p>
+    </div>
+
+	    <div class="info-box">
+	        <p><strong>Количество паломников</strong></p>
+	    </div>
+
+	    <label for="pilgrim_count_input">Количество *</label>
+	    <input type="number" id="pilgrim_count_input" min="1" max="30" value="1" required>
+
+	    <div id="pilgrimsContainer"></div>
+
+    <label for="room_type">Размещение</label>
+    <select id="room_type">
+        <option value="не указано">Не указано</option>
+        <option value="QUADRO">QUADRO (4 местный)</option>
+        <option value="TRIPLE">TRIPLE (3 местный)</option>
+        <option value="DOUBLE">DOUBLE (2 местный)</option>
+        <option value="SINGLE">SINGLE (1 местный)</option>
+    </select>
+
+    <label for="meal_type">Питание</label>
+    <select id="meal_type">
+        <option value="не указано">Не указано</option>
+        <option value="BB">BB (Завтрак)</option>
+        <option value="HB">HB (Завтрак + Ужин)</option>
+        <option value="FB">FB (Полный пансион)</option>
+        <option value="AI">AI (Все включено)</option>
+    </select>
+
+	    <label for="price">Цена</label>
+	    <input type="text" id="price">
+
+	    <label for="departure_city">Город вылета</label>
+	    <input type="text" id="departure_city">
+
+	    <label for="region">Регион</label>
+	    <input type="text" id="region">
+
+	    <label for="client_phone">Телефон клиента *</label>
+	    <input type="tel" id="client_phone" required>
+
+	    <label for="comment">Комментарий</label>
+	    <textarea id="comment" rows="3"></textarea>
+
+    <button class="submit-btn" id="submitBtn" onclick="submitOpenDate()">
+        📋 Записать в OPEN DATE
+    </button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            window.history.back();
+        });
+
+	        let pilgrimCount = 1;
+
+	        function setPilgrimCount(count) {
+	            const safe = Math.max(1, Math.min(30, parseInt(count || '1', 10) || 1));
+	            pilgrimCount = safe;
+	            const input = document.getElementById('pilgrim_count_input');
+	            if (input && String(input.value) !== String(safe)) input.value = String(safe);
+	            renderPilgrims();
+	        }
+
+	        function renderPilgrims() {
+	            const container = document.getElementById('pilgrimsContainer');
+	            container.innerHTML = '';
+
+	            for (let i = 0; i < pilgrimCount; i++) {
+	                const card = document.createElement('div');
+	                card.className = 'pilgrim-card';
+	                const headerId = `pilgrim_header_${i}`;
+	                card.innerHTML = `
+	                    <div class="pilgrim-header" id="${headerId}">Паломник</div>
+
+	                    <div class="row">
+	                        <div class="col">
+	                            <label>Фамилия *</label>
+	                            <input type="text" class="last_name" required>
+	                        </div>
+	                        <div class="col">
+	                            <label>Имя *</label>
+	                            <input type="text" class="first_name" required>
+	                        </div>
+	                    </div>
+
+	                    <label>Пол *</label>
+	                    <div class="radio-group">
+	                        <input type="radio" id="gender_m_${i}" name="gender_${i}" value="M" required>
+	                        <label for="gender_m_${i}">Мужчина</label>
+
+	                        <input type="radio" id="gender_f_${i}" name="gender_${i}" value="F" required>
+	                        <label for="gender_f_${i}">Женщина</label>
+	                    </div>
+	                `;
+	                container.appendChild(card);
+
+	                const lastInput = card.querySelector('.last_name');
+	                const firstInput = card.querySelector('.first_name');
+	                const headerEl = card.querySelector(`#${headerId}`);
+
+	                const syncHeader = () => {
+	                    const last = (lastInput?.value || '').trim().toUpperCase();
+	                    const first = (firstInput?.value || '').trim().toUpperCase();
+	                    if (headerEl) headerEl.textContent = (last || first) ? `${last} ${first}`.trim() : 'Паломник';
+	                };
+	                lastInput?.addEventListener('input', syncHeader);
+	                firstInput?.addEventListener('input', syncHeader);
+	            }
+	        }
+
+        async function submitOpenDate() {
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Сохранение...';
+
+            try {
+                // Собираем данные паломников
+                const pilgrims = [];
+                const cards = document.querySelectorAll('.pilgrim-card');
+
+                for (let i = 0; i < cards.length; i++) {
+                    const card = cards[i];
+                    const lastName = card.querySelector('.last_name').value.trim();
+                    const firstName = card.querySelector('.first_name').value.trim();
+                    const gender = card.querySelector(`input[name="gender_${i}"]:checked`)?.value;
+
+                    if (!lastName || !firstName || !gender) {
+                        alert(`Паломник ${i + 1}: заполните обязательные поля (фамилия, имя, пол)`);
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = '📋 Записать в OPEN DATE';
+                        return;
+                    }
+
+	                    pilgrims.push({
+	                        last_name: lastName.toUpperCase(),
+	                        first_name: firstName.toUpperCase(),
+	                        gender: gender
+	                    });
+	                }
+
+                const phone = document.getElementById('client_phone').value.trim();
+                if (!phone) {
+                    alert('Укажите телефон клиента');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '📋 Записать в OPEN DATE';
+                    return;
+                }
+
+                // Собираем остальные данные
+                const data = {
+                    pilgrims: pilgrims,
+                    room_type: document.getElementById('room_type').value,
+                    meal_type: document.getElementById('meal_type').value,
+                    price: document.getElementById('price').value.trim(),
+                    departure_city: document.getElementById('departure_city').value.trim(),
+                    region: document.getElementById('region').value.trim(),
+                    client_phone: phone,
+                    comment: document.getElementById('comment').value.trim(),
+                    manager_id: tg.initDataUnsafe?.user?.id || 0,
+                    manager_name_text: tg.initDataUnsafe?.user?.first_name || 'Manager'
+                };
+
+                console.log('Отправка данных:', data);
+
+                // Отправляем на сервер
+                const response = await fetch(`${API_URL}/api/open-date/submit`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'ngrok-skip-browser-warning': '1'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    tg.showAlert('✅ Паломники записаны в OPEN DATE!', () => {
+                        window.location.href = 'open_date.html';
+                    });
+                } else {
+                    throw new Error(result.error || 'Ошибка сохранения');
+                }
+
+            } catch (error) {
+                console.error('Ошибка:', error);
+                tg.showAlert(`❌ Ошибка: ${error.message}`);
+                submitBtn.disabled = false;
+                submitBtn.textContent = '📋 Записать в OPEN DATE';
+            }
+        }
+
+	        // Инициализация
+	        document.getElementById('pilgrim_count_input').addEventListener('input', (e) => {
+	            setPilgrimCount(e.target.value);
+	        });
+	        renderPilgrims();
+	    </script>
+	</body>
+	</html>

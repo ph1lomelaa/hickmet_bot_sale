@@ -609,3 +609,300 @@ async def write_rescheduled_booking_red(sheet_id, sheet_name, package_name, gues
         import traceback
         traceback.print_exc()
         return False
+
+
+# === OPEN DATE FUNCTIONS ===
+
+async def write_open_date_to_certificate(pilgrim_data_list, booking_data):
+    """
+    Записывает паломников в таблицу Certificate 2025 для OPEN DATE.
+
+    Args:
+        pilgrim_data_list: Список паломников [{last_name, first_name, gender, dob, passport_num, passport_expiry, iin}, ...]
+        booking_data: Общие данные брони {room_type, meal_type, price, region, departure_city, client_phone, manager_name_text, comment}
+
+    Returns:
+        list: Список номеров строк в Google Sheets, куда были записаны паломники
+    """
+    CERTIFICATE_TABLE_ID = "1IKLFtRq7tSTuU3dyVf8u0vhGswDBBh9rhj1R8B6WI8c"
+    SHEET_NAME = "Certificate 2025"
+
+    try:
+        print(f"\n📝 Запись OPEN DATE в Certificate таблицу...")
+        print(f"   Паломников: {len(pilgrim_data_list)}")
+
+        # Получаем клиент и worksheet
+        client = get_google_client()
+        if not client:
+            print("❌ Не удалось получить Google клиент")
+            return []
+
+        ss = client.open_by_key(CERTIFICATE_TABLE_ID)
+        ws = get_worksheet_by_title(ss, SHEET_NAME)
+        if not ws:
+            print(f"❌ Лист '{SHEET_NAME}' не найден")
+            return []
+
+        # Получаем все значения таблицы
+        all_values = ws.get_all_values()
+
+        # Находим заголовки (первая строка)
+        if not all_values:
+            print("❌ Таблица пуста")
+            return []
+
+        headers = all_values[0]
+        print(f"   Заголовки: {headers}")
+
+        # Создаем карту колонок
+        col_map = {}
+        for idx, header in enumerate(headers):
+            header_lower = header.strip().lower()
+            if 'фамилия' in header_lower and 'имя' in header_lower:
+                col_map['name'] = idx
+            elif 'male' in header_lower and 'female' in header_lower:
+                col_map['gender'] = idx
+            elif 'иин' in header_lower:
+                col_map['iin'] = idx
+            elif 'date of birth' in header_lower or 'дата рождения' in header_lower:
+                col_map['dob'] = idx
+            elif 'телефон' in header_lower:
+                col_map['phone'] = idx
+            elif 'размещение' in header_lower:
+                col_map['room'] = idx
+            elif 'питание' in header_lower:
+                col_map['meal'] = idx
+            elif 'к оплате' in header_lower or 'оплате' in header_lower:
+                col_map['price'] = idx
+            elif 'город' in header_lower:
+                col_map['city'] = idx
+            elif 'менеджер' in header_lower:
+                col_map['manager'] = idx
+            elif 'комментарий' in header_lower:
+                col_map['comment'] = idx
+
+        print(f"   Карта колонок: {col_map}")
+
+        # Находим последнюю заполненную строку (смотрим на колонку name)
+        last_row = 1  # Начинаем со 2-й строки (после заголовка)
+        name_col = col_map.get('name', 0)
+
+        for row_idx in range(1, len(all_values)):
+            row_data = all_values[row_idx]
+            if row_data and len(row_data) > name_col:
+                cell_value = str(row_data[name_col]).strip()
+                # Проверяем не красная ли это строка (пустая или с особыми пометками)
+                if cell_value and cell_value != '':
+                    last_row = row_idx + 1  # +1 потому что индексация с 1
+
+        print(f"   Последняя заполненная строка: {last_row}")
+
+        # Вставляем паломников после последней строки
+        insert_row = last_row + 1
+        saved_rows = []
+
+        for pilgrim in pilgrim_data_list:
+            print(f"\n   Записываем паломника: {pilgrim.get('last_name', '')} {pilgrim.get('first_name', '')}")
+
+            updates = []
+
+            # Подготавливаем данные для записи
+            full_name = f"{pilgrim.get('last_name', '')} {pilgrim.get('first_name', '')}"
+            gender = pilgrim.get('gender', '')
+            iin = pilgrim.get('iin', '')
+            dob = pilgrim.get('date_of_birth', '')
+            phone = booking_data.get('client_phone', '')
+            room_type = booking_data.get('room_type', '')
+            meal_type = booking_data.get('meal_type', '')
+            price = booking_data.get('price', '')
+            city = booking_data.get('departure_city', '')
+            manager = booking_data.get('manager_name_text', '')
+            comment = booking_data.get('comment', '')
+
+            # Записываем данные в соответствующие колонки
+            if 'name' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['name'] + 1)
+                updates.append({'range': cell, 'values': [[full_name]]})
+
+            if 'gender' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['gender'] + 1)
+                updates.append({'range': cell, 'values': [[gender]]})
+
+            if 'iin' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['iin'] + 1)
+                updates.append({'range': cell, 'values': [[iin]]})
+
+            if 'dob' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['dob'] + 1)
+                updates.append({'range': cell, 'values': [[dob]]})
+
+            if 'phone' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['phone'] + 1)
+                updates.append({'range': cell, 'values': [[phone]]})
+
+            if 'room' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['room'] + 1)
+                updates.append({'range': cell, 'values': [[room_type]]})
+
+            if 'meal' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['meal'] + 1)
+                updates.append({'range': cell, 'values': [[meal_type]]})
+
+            if 'price' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['price'] + 1)
+                updates.append({'range': cell, 'values': [[price]]})
+
+            if 'city' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['city'] + 1)
+                updates.append({'range': cell, 'values': [[city]]})
+
+            if 'manager' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['manager'] + 1)
+                updates.append({'range': cell, 'values': [[manager]]})
+
+            if 'comment' in col_map:
+                cell = row_col_to_a1(insert_row, col_map['comment'] + 1)
+                updates.append({'range': cell, 'values': [[comment]]})
+
+            # Применяем обновления
+            if updates:
+                ws.batch_update(updates)
+                print(f"   ✅ Паломник записан в строку {insert_row}")
+                saved_rows.append(insert_row)
+                insert_row += 1
+            else:
+                print(f"   ⚠️ Нет данных для записи паломника")
+
+        print(f"\n✅ Записано {len(saved_rows)} паломников в Certificate 2025")
+        return saved_rows
+
+    except Exception as e:
+        print(f"❌ Ошибка записи в Certificate таблицу: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
+async def move_pilgrim_from_certificate_to_used(pilgrim_full_name, selected_date, new_booking_data):
+    """
+    Переносит паломника из Certificate 2025 в лист ИСПОЛЬЗОВАННЫЕ.
+
+    Args:
+        pilgrim_full_name: Полное имя паломника для поиска
+        selected_date: Выбранная дата
+        new_booking_data: Данные нового бронирования
+
+    Returns:
+        bool: True если успешно, False если ошибка
+    """
+    CERTIFICATE_TABLE_ID = "1IKLFtRq7tSTuU3dyVf8u0vhGswDBBh9rhj1R8B6WI8c"
+    CERT_SHEET_NAME = "Certificate 2025"
+    USED_SHEET_NAME = "ИСПОЛЬЗОВАННЫЕ"
+
+    try:
+        print(f"\n🔄 Перенос паломника {pilgrim_full_name} из Certificate в ИСПОЛЬЗОВАННЫЕ...")
+
+        # Получаем клиент
+        client = get_google_client()
+        if not client:
+            print("❌ Не удалось получить Google клиент")
+            return False
+
+        ss = client.open_by_key(CERTIFICATE_TABLE_ID)
+
+        # Открываем Certificate лист
+        ws_cert = get_worksheet_by_title(ss, CERT_SHEET_NAME)
+        if not ws_cert:
+            print(f"❌ Лист '{CERT_SHEET_NAME}' не найден")
+            return False
+
+        # Ищем паломника в Certificate 2025
+        all_values = ws_cert.get_all_values()
+        headers_cert = all_values[0]
+
+        # Находим колонку с именем
+        name_col = None
+        for idx, header in enumerate(headers_cert):
+            if 'фамилия' in header.lower() and 'имя' in header.lower():
+                name_col = idx
+                break
+
+        if name_col is None:
+            print("❌ Не найдена колонка с именем в Certificate 2025")
+            return False
+
+        # Ищем строку с паломником
+        pilgrim_row = None
+        pilgrim_data = None
+        for row_idx in range(1, len(all_values)):
+            row = all_values[row_idx]
+            if row and len(row) > name_col:
+                cell_value = str(row[name_col]).strip()
+                if cell_value.lower() == pilgrim_full_name.lower():
+                    pilgrim_row = row_idx + 1  # +1 для Google Sheets индексации
+                    pilgrim_data = row
+                    break
+
+        if not pilgrim_row:
+            print(f"❌ Паломник {pilgrim_full_name} не найден в Certificate 2025")
+            return False
+
+        print(f"   Найден паломник в строке {pilgrim_row}")
+
+        # Удаляем строку из Certificate 2025
+        ws_cert.delete_rows(pilgrim_row)
+        print(f"   ✅ Строка удалена из Certificate 2025")
+
+        # Записываем в лист ИСПОЛЬЗОВАННЫЕ
+        ws_used = get_worksheet_by_title(ss, USED_SHEET_NAME)
+        if not ws_used:
+            print(f"❌ Лист '{USED_SHEET_NAME}' не найден")
+            return False
+
+        # Получаем заголовки ИСПОЛЬЗОВАННЫЕ
+        all_values_used = ws_used.get_all_values()
+        headers_used = all_values_used[0] if all_values_used else []
+
+        # Находим последнюю заполненную строку
+        last_used_row = len(all_values_used) + 1
+
+        # Создаем карту колонок для ИСПОЛЬЗОВАННЫЕ
+        used_col_map = {}
+        for idx, header in enumerate(headers_used):
+            header_lower = header.strip().lower()
+            if 'фамилия' in header_lower and 'имя' in header_lower:
+                used_col_map['name'] = idx
+            elif 'выбранная дата' in header_lower:
+                used_col_map['selected_date'] = idx
+            elif 'пакет' in header_lower:
+                used_col_map['package'] = idx
+            # Добавьте другие колонки по необходимости
+
+        # Записываем данные
+        updates = []
+
+        if 'name' in used_col_map:
+            cell = row_col_to_a1(last_used_row, used_col_map['name'] + 1)
+            updates.append({'range': cell, 'values': [[pilgrim_full_name]]})
+
+        if 'selected_date' in used_col_map:
+            cell = row_col_to_a1(last_used_row, used_col_map['selected_date'] + 1)
+            updates.append({'range': cell, 'values': [[selected_date]]})
+
+        if 'package' in used_col_map and new_booking_data.get('package_name'):
+            cell = row_col_to_a1(last_used_row, used_col_map['package'] + 1)
+            updates.append({'range': cell, 'values': [[new_booking_data.get('package_name')]]})
+
+        # Применяем обновления
+        if updates:
+            ws_used.batch_update(updates)
+            print(f"   ✅ Паломник записан в ИСПОЛЬЗОВАННЫЕ (строка {last_used_row})")
+
+        print(f"✅ Паломник успешно перенесен")
+        return True
+
+    except Exception as e:
+        print(f"❌ Ошибка переноса паломника: {e}")
+        import traceback
+        traceback.print_exc()
+        return False

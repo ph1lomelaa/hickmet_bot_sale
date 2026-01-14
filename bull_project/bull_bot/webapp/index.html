@@ -1052,7 +1052,6 @@
         document.getElementById('table_id_hidden').value = opt.dataset.table;
     };
 
-    // --- ПАРСИНГ ТУРИСТОВ ИЗ URL ---
     const urlParams = new URLSearchParams(window.location.search);
 	    const pRaw = urlParams.get('pilgrims');
 	    const fillModeParam = (urlParams.get('fill_mode') || '').toLowerCase();
@@ -1063,26 +1062,56 @@
 		    const oldBookingId = urlParams.get('old_booking_id');
 		    const oldBookingIdsParam = urlParams.get('old_booking_ids');
 		    const rescheduleCommentParam = urlParams.get('reschedule_comment');
+		    const openDateId = urlParams.get('open_date_id');
 
     console.log("📥 URL параметры:");
     console.log("   pilgrims:", pRaw ? "есть данные" : "нет");
     console.log("   mode:", modeParam);
     console.log("   booking_id:", editBookingId);
     console.log("   old_booking_id:", oldBookingId);
+    console.log("   open_date_id:", openDateId);
 
 		    currentMode = modeParam || localStorage.getItem('mode') || 'create';
 		    currentBookingId = editBookingId || localStorage.getItem('edit_booking_id') || null;
 		    let currentOldBookingId = oldBookingId || localStorage.getItem('old_booking_id') || null;
 		    let currentOldBookingIds = [];
+
+		    // Если пришли в "заполнение в форме" (новая бронь), всегда считаем это созданием,
+		    // даже если в URL/LocalStorage остался mode=reschedule.
+		    if (fillModeParam === 'form') {
+		        currentMode = 'create';
+		    }
+
+		    // Если открыли форму без mode=... (обычное создание), не тащим хвосты переноса из localStorage
+		    // (иначе UI/комментарии/endpoint могут "думать", что это перенос).
+		    if (!modeParam || fillModeParam === 'form') {
+		        currentMode = 'create';
+		        try {
+		            localStorage.removeItem('mode');
+		            localStorage.removeItem('is_reschedule');
+		            localStorage.removeItem('old_booking_id');
+		            localStorage.removeItem('old_booking_ids');
+		            localStorage.removeItem('reschedule_comment');
+		            localStorage.removeItem('reschedule_data');
+		            localStorage.removeItem('old_booking_id');
+		        } catch (e) {}
+		        currentOldBookingId = null;
+		        currentOldBookingIds = [];
+		    }
 		    try {
 		        if (oldBookingIdsParam) {
 		            currentOldBookingIds = JSON.parse(oldBookingIdsParam);
 		            localStorage.setItem('old_booking_ids', JSON.stringify(currentOldBookingIds));
 		        } else {
 		            const stored = localStorage.getItem('old_booking_ids');
-		            if (stored) currentOldBookingIds = JSON.parse(stored);
+		            if (stored && currentMode === 'reschedule') currentOldBookingIds = JSON.parse(stored);
 		        }
 		    } catch (e) {
+		        currentOldBookingIds = [];
+		    }
+
+		    if (currentMode !== 'reschedule') {
+		        currentOldBookingId = null;
 		        currentOldBookingIds = [];
 		    }
 
@@ -1508,14 +1537,21 @@
 	    // Показываем предупреждение и фиксируем поля при редактировании
 	    applyEditLock();
 
-	    // В режиме переноса: подставляем комментарий (если есть)
-	    if (currentMode === 'reschedule') {
-	        const savedRescheduleComment = localStorage.getItem('reschedule_comment') || '';
-	        const commentEl = document.getElementById('comment');
-	        if (commentEl && savedRescheduleComment.trim() && !commentEl.value.trim()) {
-	            commentEl.value = `ПЕРЕНОС: ${savedRescheduleComment.trim()}`;
-	        }
-	    }
+		    // В режиме переноса: подставляем комментарий (если есть)
+		    if (currentMode === 'reschedule') {
+		        const savedRescheduleComment = localStorage.getItem('reschedule_comment') || '';
+		        const commentEl = document.getElementById('comment');
+		        if (commentEl && savedRescheduleComment.trim() && !commentEl.value.trim()) {
+		            commentEl.value = `ПЕРЕНОС: ${savedRescheduleComment.trim()}`;
+		        }
+		    }
+		    // Если это не перенос — убираем случайно подставленный старый "ПЕРЕНОС:" в комментарии
+		    if (currentMode !== 'reschedule') {
+		        const commentEl = document.getElementById('comment');
+		        if (commentEl && /^\\s*ПЕРЕНОС\\s*:/i.test(commentEl.value || '')) {
+		            commentEl.value = '';
+		        }
+		    }
 
     // Если режим редактирования - загружаем полные данные брони из API
     if (currentMode === 'edit' && currentBookingId) {
@@ -1806,7 +1842,7 @@
         if (currentMode !== 'edit') {
             const missing = (pilgrimsData || []).findIndex(p => {
                 const phone = String(p?.phone || '').trim();
-                return !phone || phone === '-' || phone.length < 6;
+                return !phone || phone === '-';
             });
             if (missing !== -1) {
                 const p = pilgrimsData[missing] || {};
@@ -1978,7 +2014,16 @@
 	        if (currentMode === 'reschedule') {
 	            data.old_booking_id = currentOldBookingId ? parseInt(currentOldBookingId, 10) : null;
 	            if (Array.isArray(currentOldBookingIds) && currentOldBookingIds.length > 0) {
-	                data.old_booking_ids = currentOldBookingIds.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n));
+	                // Если по какой-то причине старый список "не соответствует" текущему кол-ву паломников,
+	                // отправляем перенос как одиночный (чтобы не падать с ошибкой)
+	                const normalized = currentOldBookingIds.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n));
+	                if (normalized.length === pilgrims.length) {
+	                    data.old_booking_ids = normalized;
+	                } else if (data.old_booking_id) {
+	                    data.old_booking_ids = [data.old_booking_id];
+	                }
+	            } else if (data.old_booking_id) {
+	                data.old_booking_ids = [data.old_booking_id];
 	            }
 	        }
 
@@ -2011,6 +2056,39 @@
 	                successMessage = "✅ Бронь успешно размещена!";
 	            }
 	            alert(successMessage);
+
+	            // Если это была конвертация OPEN DATE, переносим паломника из Certificate в ИСПОЛЬЗОВАННЫЕ
+	            if (openDateId && currentMode !== 'edit' && currentMode !== 'reschedule') {
+	                console.log("📅 Конвертация OPEN DATE #" + openDateId);
+	                try {
+	                    const convertResponse = await fetch(`${API_URL}/api/open-date/convert/${openDateId}`, {
+	                        method: 'POST',
+	                        headers: {
+	                            "Content-Type": "application/json",
+	                            "ngrok-skip-browser-warning": "1"
+	                        },
+	                        body: JSON.stringify({
+	                            open_date_id: parseInt(openDateId, 10),
+	                            package_name: data.package_name,
+	                            sheet_name: data.sheet_name,
+	                            table_id: data.table_id,
+	                            selected_date: document.getElementById('date_input').value
+	                        })
+	                    });
+
+	                    const convertJson = await convertResponse.json().catch(() => ({}));
+
+	                    if (convertResponse.ok && convertJson.success) {
+	                        console.log("✅ OPEN DATE успешно конвертирован");
+	                    } else {
+	                        console.warn("⚠️ Ошибка конвертации OPEN DATE:", convertJson.error || "Неизвестная ошибка");
+	                        // Не показываем alert, чтобы не путать пользователя - бронь уже создана
+	                    }
+	                } catch (convertError) {
+	                    console.error("❌ Ошибка при конвертации OPEN DATE:", convertError);
+	                    // Не показываем alert, чтобы не путать пользователя - бронь уже создана
+	                }
+	            }
 
 	            // Отправляем событие в Telegram для возврата в главное меню
 	            if (currentMode === 'reschedule') {

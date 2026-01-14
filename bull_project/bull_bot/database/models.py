@@ -98,3 +98,39 @@ class ApprovalRequest(Base):
     status = Column(String, default="pending")  # pending | approved | rejected
     created_at = Column(DateTime, default=datetime.now)
     comment = Column(Text, nullable=True)  # для reschedule можно хранить old_booking_id
+
+
+class OpenDateBooking(Base):
+    """
+    Хранит паломников, записанных на OPEN DATE (без конкретной даты).
+    Записываются в Google Sheets таблицу "Certificate 2025" и ждут выбора даты.
+    """
+    __tablename__ = 'open_date_bookings'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    manager_id = Column(BigInteger, ForeignKey('users.telegram_id'))
+    manager_name_text = Column(String)
+
+    # Данные группы паломников (JSON массив)
+    pilgrim_data = Column(JSON)  # [{last_name, first_name, gender, dob, passport_num, passport_expiry, iin}, ...]
+
+    # Параметры брони
+    room_type = Column(String, nullable=True)  # Может быть "не указано"
+    meal_type = Column(String, nullable=True)  # Может быть "не указано"
+    price = Column(String, nullable=True)
+    region = Column(String, nullable=True)
+    departure_city = Column(String, nullable=True)
+
+    # Контактная информация
+    client_phone = Column(String)
+    comment = Column(Text, nullable=True)
+
+    # Google Sheets данные
+    google_sheet_row = Column(Integer, nullable=True)  # Номер строки в Certificate 2025
+
+    # Статус
+    status = Column(String, default="OPEN")  # OPEN | CONVERTED
+
+    # Временные метки
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

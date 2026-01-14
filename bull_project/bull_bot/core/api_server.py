@@ -66,6 +66,7 @@ from bull_project.bull_bot.config.constants import ABS_UPLOADS_DIR
 from bull_project.bull_bot.core.passport_storage import resolve_passport_file_path
 from bull_project.bull_bot.api.routes.rooms import router as rooms_router
 from bull_project.bull_bot.api.routes.admin_requests import router as admin_requests_router
+from bull_project.bull_bot.api.routes.open_date import router as open_date_router
 from bull_project.bull_bot.core.websocket_manager import (
     phone_subscribers,
     admin_request_subscribers,
@@ -94,6 +95,7 @@ app.add_middleware(
 
 app.include_router(rooms_router)
 app.include_router(admin_requests_router)
+app.include_router(open_date_router)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CARE_WEBAPP_DIR = os.path.join(PROJECT_ROOT, "care_webapp")

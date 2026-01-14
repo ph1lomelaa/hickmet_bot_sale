@@ -1,6 +1,6 @@
 from sqlalchemy import select, desc, func, distinct, or_, text
 from datetime import datetime, timedelta
-from .models import User, Booking, Request4U, AdminSettings, ApprovalRequest
+from .models import User, Booking, Request4U, AdminSettings, ApprovalRequest, OpenDateBooking
 from .setup import async_session, engine
 
 from bull_project.bull_bot.core.passport_storage import normalize_passport_path_for_storage
@@ -748,3 +748,143 @@ async def get_all_bookings_for_period(start_date, end_date):
             ).order_by(desc(Booking.created_at))
         )
         return bookings.all()
+
+
+# === OPEN DATE BOOKINGS ===
+
+async def add_open_date_booking(
+    manager_id: int,
+    manager_name_text: str,
+    pilgrim_data: list,
+    room_type: str = None,
+    meal_type: str = None,
+    price: str = None,
+    region: str = None,
+    departure_city: str = None,
+    client_phone: str = None,
+    comment: str = None,
+    google_sheet_row: int = None
+):
+    """Создать запись OPEN DATE"""
+    async with async_session() as session:
+        open_date_booking = OpenDateBooking(
+            manager_id=manager_id,
+            manager_name_text=manager_name_text,
+            pilgrim_data=pilgrim_data,
+            room_type=room_type,
+            meal_type=meal_type,
+            price=price,
+            region=region,
+            departure_city=departure_city,
+            client_phone=client_phone,
+            comment=comment,
+            google_sheet_row=google_sheet_row,
+            status="OPEN"
+        )
+        session.add(open_date_booking)
+        await session.commit()
+        await session.refresh(open_date_booking)
+        return open_date_booking
+
+
+async def get_open_date_booking_by_id(booking_id: int):
+    """Получить OPEN DATE бронь по ID"""
+    async with async_session() as session:
+        booking = await session.scalar(
+            select(OpenDateBooking).where(OpenDateBooking.id == booking_id)
+        )
+        return booking
+
+
+async def get_all_open_date_bookings(manager_id: int = None):
+    """Получить все OPEN DATE брони (опционально для конкретного менеджера)"""
+    async with async_session() as session:
+        query = select(OpenDateBooking).where(OpenDateBooking.status == "OPEN")
+
+        if manager_id:
+            query = query.where(OpenDateBooking.manager_id == manager_id)
+
+        query = query.order_by(desc(OpenDateBooking.created_at))
+        bookings = await session.scalars(query)
+        return bookings.all()
+
+
+async def search_open_date_bookings(search_query: str):
+    """Поиск OPEN DATE броней по имени/фамилии/телефону"""
+    async with async_session() as session:
+        # Поиск по pilgrim_data (JSON) или по client_phone
+        search = f"%{search_query}%"
+
+        bookings = await session.scalars(
+            select(OpenDateBooking).where(
+                OpenDateBooking.status == "OPEN",
+                or_(
+                    OpenDateBooking.client_phone.like(search),
+                    # Для SQLite/PostgreSQL поиск в JSON может отличаться
+                    # Упрощенный вариант - получаем все и фильтруем в Python
+                )
+            ).order_by(desc(OpenDateBooking.created_at))
+        )
+
+        all_bookings = bookings.all()
+
+        # Дополнительная фильтрация по данным паломников
+        filtered = []
+        search_lower = search_query.lower()
+        for booking in all_bookings:
+            if booking.client_phone and search_lower in booking.client_phone.lower():
+                filtered.append(booking)
+                continue
+
+            # Проверяем данные паломников
+            if booking.pilgrim_data:
+                for pilgrim in booking.pilgrim_data:
+                    if (search_lower in pilgrim.get('last_name', '').lower() or
+                        search_lower in pilgrim.get('first_name', '').lower() or
+                        search_lower in pilgrim.get('passport_num', '').lower() or
+                        search_lower in pilgrim.get('iin', '').lower()):
+                        filtered.append(booking)
+                        break
+
+        return filtered
+
+
+async def update_open_date_booking_status(booking_id: int, status: str):
+    """Обновить статус OPEN DATE брони"""
+    async with async_session() as session:
+        booking = await session.scalar(
+            select(OpenDateBooking).where(OpenDateBooking.id == booking_id)
+        )
+        if booking:
+            booking.status = status
+            booking.updated_at = datetime.now()
+            await session.commit()
+            return booking
+        return None
+
+
+async def delete_open_date_booking(booking_id: int):
+    """Удалить OPEN DATE бронь"""
+    async with async_session() as session:
+        booking = await session.scalar(
+            select(OpenDateBooking).where(OpenDateBooking.id == booking_id)
+        )
+        if booking:
+            await session.delete(booking)
+            await session.commit()
+            return True
+        return False
+
+
+async def update_open_date_booking_sheet_row(booking_id: int, sheet_row: int):
+    """Обновить номер строки в Google Sheets для OPEN DATE брони"""
+    async with async_session() as session:
+        booking = await session.scalar(
+            select(OpenDateBooking).where(OpenDateBooking.id == booking_id)
+        )
+        if booking:
+            booking.google_sheet_row = sheet_row
+            booking.updated_at = datetime.now()
+            await session.commit()
+            return booking
+        return None
