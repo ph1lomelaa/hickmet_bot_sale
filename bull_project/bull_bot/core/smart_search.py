@@ -146,38 +146,43 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
         if not temp_collected:
             return {"found": False, "error": "Рейсы не найдены."}
 
-        # 🔍 ОПРЕДЕЛЯЕМ ДУБЛИКАТЫ: Проверяем какие названия пакетов встречаются больше 1 раза
-        # с разными sheet_name или table_id
+        # 🔍 ОПРЕДЕЛЯЕМ ДУБЛИКАТЫ ПО ДАТЕ: Проверяем есть ли пакеты с одной датой на разных листах
+        # Дата обычно в начале названия пакета (например "15.01 Niyet 4*")
         from collections import defaultdict
 
-        package_occurrences = defaultdict(list)
+        # Группируем пакеты по дате (первые символы до пробела)
+        date_occurrences = defaultdict(list)
         for item in temp_collected:
             pkg_name = item["n"]
+            # Вытаскиваем дату из начала названия (до первого пробела или тире)
+            date_prefix = pkg_name.split()[0] if pkg_name.split() else pkg_name
             key = (item["s"], item["t"])  # (sheet_name, table_id)
-            package_occurrences[pkg_name].append(key)
+            date_occurrences[date_prefix].append((pkg_name, key))
 
-        # Находим пакеты которые встречаются с разными (sheet_name, table_id)
-        duplicates = set()
-        for pkg_name, keys in package_occurrences.items():
-            if len(set(keys)) > 1:  # Уникальных комбинаций больше 1
-                duplicates.add(pkg_name)
+        # Находим даты которые встречаются на разных листах/таблицах
+        packages_with_duplicates = set()
+        for date_prefix, items in date_occurrences.items():
+            # Получаем уникальные комбинации (sheet_name, table_id) для этой даты
+            unique_locations = set(key for _, key in items)
+            if len(unique_locations) > 1:  # Дата встречается на разных листах
+                # Добавляем ВСЕ пакеты с этой датой в список дубликатов
+                for pkg_name, _ in items:
+                    packages_with_duplicates.add(pkg_name)
+                print(f"   📅 Дата '{date_prefix}' на {len(unique_locations)} разных листах")
 
-        print(f"📦 [DEBUG] Найдено дубликатов пакетов: {len(duplicates)}")
-        if duplicates:
-            print(f"   Дубликаты: {list(duplicates)[:5]}...")  # Показываем первые 5
+        print(f"📦 [DEBUG] Найдено пакетов с дубликатами по дате: {len(packages_with_duplicates)}")
 
-        # 🎯 ФОРМИРУЕМ ФИНАЛЬНЫЙ СПИСОК: Добавляем суффикс ТОЛЬКО к дубликатам
         collected: List[dict] = []
         for item in temp_collected:
             pkg_name = item["n"]
             suffix = item["suffix"]
 
-            if pkg_name in duplicates:
-                # Это дубликат - добавляем суффикс
+            if pkg_name in packages_with_duplicates:
+                # Это пакет с датой которая встречается на разных листах - добавляем суффикс
                 display_name = f"{pkg_name} [{suffix}]"
-                print(f"   🔄 Дубликат: '{pkg_name}' → '{display_name}'")
+                print(f"   🔄 Дубликат по дате: '{pkg_name}' → '{display_name}'")
             else:
-                # Уникальный пакет - оставляем как есть
+                # Уникальный пакет (дата встречается только на одном листе) - оставляем как есть
                 display_name = pkg_name
 
             collected.append({
