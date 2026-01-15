@@ -615,7 +615,12 @@ async def write_rescheduled_booking_red(sheet_id, sheet_name, package_name, gues
 
 async def write_open_date_to_certificate(pilgrim_data_list, booking_data):
     """
-    Записывает паломников в таблицу Certificate 2025 для OPEN DATE.
+    Записывает паломников в таблицу Certificate для OPEN DATE.
+
+    🔍 ЛОГИКА ПОИСКА:
+    1. Ищет таблицу где в названии есть "сертификат", "certificate", "сертификаты"
+    2. Ищет лист где в названии есть "Certificate 2025" или вариации
+    3. В первых 10 строках ищет заголовки
 
     Args:
         pilgrim_data_list: Список паломников [{last_name, first_name, gender, dob, passport_num, passport_expiry, iin}, ...]
@@ -624,85 +629,173 @@ async def write_open_date_to_certificate(pilgrim_data_list, booking_data):
     Returns:
         list: Список номеров строк в Google Sheets, куда были записаны паломники
     """
-    CERTIFICATE_TABLE_ID = "1IKLFtRq7tSTuU3dyVf8u0vhGswDBBh9rhj1R8B6WI8c"
-    SHEET_NAME = "Certificate 2025"
-
     try:
         print(f"\n📝 Запись OPEN DATE в Certificate таблицу...")
         print(f"   Паломников: {len(pilgrim_data_list)}")
 
-        # Получаем клиент и worksheet
+        # ШАГ 1: Получаем клиент Google Sheets
         client = get_google_client()
         if not client:
             print("❌ Не удалось получить Google клиент")
             return []
 
-        ss = client.open_by_key(CERTIFICATE_TABLE_ID)
-        ws = get_worksheet_by_title(ss, SHEET_NAME)
-        if not ws:
-            print(f"❌ Лист '{SHEET_NAME}' не найден")
+        # ШАГ 2: Ищем таблицу по ключевым словам
+        print(f"\n🔍 Шаг 1: Поиск таблицы с сертификатами...")
+
+        certificate_keywords = ["сертификат", "certificate", "сертификаты", "cert"]
+
+        try:
+            all_spreadsheets = client.openall()
+            print(f"   Найдено таблиц всего: {len(all_spreadsheets)}")
+
+            ss = None
+            for spreadsheet in all_spreadsheets:
+                title_lower = spreadsheet.title.lower()
+                if any(keyword in title_lower for keyword in certificate_keywords):
+                    ss = spreadsheet
+                    print(f"   ✅ Найдена таблица: '{spreadsheet.title}'")
+                    break
+
+            if not ss:
+                print(f"   ❌ Не найдена таблица с ключевыми словами: {certificate_keywords}")
+                print(f"   📋 Доступные таблицы:")
+                for s in all_spreadsheets[:10]:  # Показываем первые 10
+                    print(f"      - {s.title}")
+                return []
+
+        except Exception as e:
+            print(f"   ❌ Ошибка поиска таблицы: {e}")
             return []
 
-        # Получаем все значения таблицы
+        # ШАГ 3: Ищем лист "Certificate 2025" (с вариациями)
+        print(f"\n🔍 Шаг 2: Поиск листа Certificate 2025...")
+
+        def _norm_title(t: str) -> str:
+            """Нормализует название: убирает пробелы, lower case, кириллическая 'с' -> латинская 'c'"""
+            t = (t or "").strip().lower()
+            t = t.replace("с", "c")  # кириллическая → латинская
+            return t
+
+        sheet_keywords = ["certificate 2025", "certificate2025", "cert 2025"]
+
+        try:
+            worksheets = ss.worksheets()
+            print(f"   Найдено листов: {len(worksheets)}")
+
+            ws = None
+            for w in worksheets:
+                norm_title = _norm_title(w.title)
+                if any(keyword in norm_title for keyword in sheet_keywords):
+                    ws = w
+                    print(f"   ✅ Найден лист: '{w.title}'")
+                    break
+
+            if not ws:
+                print(f"   ❌ Не найден лист с ключевыми словами: {sheet_keywords}")
+                print(f"   📄 Доступные листы:")
+                for w in worksheets[:10]:  # Показываем первые 10
+                    print(f"      - {w.title}")
+                return []
+
+        except Exception as e:
+            print(f"   ❌ Ошибка поиска листа: {e}")
+            return []
+
+        # ШАГ 4: Получаем данные листа
+        print(f"\n🔍 Шаг 3: Поиск заголовков в первых 10 строках...")
         all_values = ws.get_all_values()
 
-        # Находим заголовки (первая строка)
         if not all_values:
             print("❌ Таблица пуста")
             return []
 
-        headers = all_values[0]
-        print(f"   Заголовки: {headers}")
-
-        # Создаем карту колонок
+        # Ищем строку с заголовками в первых 10 строках
+        header_row_idx = None
         col_map = {}
-        for idx, header in enumerate(headers):
-            header_lower = header.strip().lower()
-            if 'фамилия' in header_lower and 'имя' in header_lower:
-                col_map['name'] = idx
-            elif 'male' in header_lower and 'female' in header_lower:
-                col_map['gender'] = idx
-            elif 'иин' in header_lower:
-                col_map['iin'] = idx
-            elif 'date of birth' in header_lower or 'дата рождения' in header_lower:
-                col_map['dob'] = idx
-            elif 'телефон' in header_lower:
-                col_map['phone'] = idx
-            elif 'размещение' in header_lower:
-                col_map['room'] = idx
-            elif 'питание' in header_lower:
-                col_map['meal'] = idx
-            elif 'к оплате' in header_lower or 'оплате' in header_lower:
-                col_map['price'] = idx
-            elif 'город' in header_lower:
-                col_map['city'] = idx
-            elif 'менеджер' in header_lower:
-                col_map['manager'] = idx
-            elif 'комментарий' in header_lower:
-                col_map['comment'] = idx
 
-        print(f"   Карта колонок: {col_map}")
+        # Ключевые слова которые должны быть в заголовках
+        header_keywords = ['фамилия', 'имя', 'male', 'female', 'иин', 'телефон']
 
-        # Находим последнюю заполненную строку (смотрим на колонку name)
-        last_row = 1  # Начинаем со 2-й строки (после заголовка)
+        for row_idx in range(min(10, len(all_values))):
+            row = all_values[row_idx]
+            row_text = " ".join([str(cell).lower() for cell in row])
+
+            # Проверяем есть ли хотя бы 2 ключевых слова в этой строке
+            keyword_count = sum(1 for kw in header_keywords if kw in row_text)
+
+            if keyword_count >= 2:
+                # Похоже на строку с заголовками
+                header_row_idx = row_idx
+                headers = row
+                print(f"   ✅ Заголовки найдены в строке {row_idx + 1}")
+                print(f"   📋 Заголовки: {headers[:10]}...")  # Показываем первые 10
+
+                # Создаем карту колонок
+                for idx, header in enumerate(headers):
+                    header_lower = header.strip().lower()
+                    if 'фамилия' in header_lower and 'имя' in header_lower:
+                        col_map['name'] = idx
+                    elif 'male' in header_lower and 'female' in header_lower:
+                        col_map['gender'] = idx
+                    elif 'иин' in header_lower:
+                        col_map['iin'] = idx
+                    elif 'date of birth' in header_lower or 'дата рождения' in header_lower:
+                        col_map['dob'] = idx
+                    elif 'телефон' in header_lower:
+                        col_map['phone'] = idx
+                    elif 'размещение' in header_lower:
+                        col_map['room'] = idx
+                    elif 'питание' in header_lower:
+                        col_map['meal'] = idx
+                    elif 'к оплате' in header_lower or 'оплате' in header_lower:
+                        col_map['price'] = idx
+                    elif 'город' in header_lower:
+                        col_map['city'] = idx
+                    elif 'менеджер' in header_lower:
+                        col_map['manager'] = idx
+                    elif 'комментарий' in header_lower:
+                        col_map['comment'] = idx
+                break
+
+        if header_row_idx is None:
+            print(f"   ❌ Заголовки не найдены в первых 10 строках")
+            print(f"   📋 Первые строки таблицы:")
+            for i in range(min(5, len(all_values))):
+                print(f"      Строка {i+1}: {all_values[i][:5]}")
+            return []
+
+        if not col_map:
+            print(f"   ❌ Не удалось распознать колонки")
+            return []
+
+        print(f"   ✅ Карта колонок: {col_map}")
+
+        # ШАГ 5: Находим последнюю заполненную строку (смотрим на колонку name)
+        print(f"\n🔍 Шаг 4: Поиск последней заполненной строки...")
+
+        # Начинаем искать ПОСЛЕ строки с заголовками
+        last_row = header_row_idx + 1  # Строка после заголовков (в терминах Google Sheets, 1-indexed)
         name_col = col_map.get('name', 0)
 
-        for row_idx in range(1, len(all_values)):
+        for row_idx in range(header_row_idx + 1, len(all_values)):
             row_data = all_values[row_idx]
             if row_data and len(row_data) > name_col:
                 cell_value = str(row_data[name_col]).strip()
-                # Проверяем не красная ли это строка (пустая или с особыми пометками)
+                # Проверяем не пустая ли ячейка
                 if cell_value and cell_value != '':
-                    last_row = row_idx + 1  # +1 потому что индексация с 1
+                    last_row = row_idx + 1  # +1 потому что Google Sheets индексация с 1
 
-        print(f"   Последняя заполненная строка: {last_row}")
+        print(f"   ✅ Последняя заполненная строка: {last_row}")
+        print(f"   📍 Новые паломники будут записаны начиная со строки: {last_row + 1}")
 
-        # Вставляем паломников после последней строки
+        # ШАГ 6: Записываем паломников
+        print(f"\n🔍 Шаг 5: Запись {len(pilgrim_data_list)} паломников...")
+
         insert_row = last_row + 1
         saved_rows = []
 
-        for pilgrim in pilgrim_data_list:
-            print(f"\n   Записываем паломника: {pilgrim.get('last_name', '')} {pilgrim.get('first_name', '')}")
+        for idx, pilgrim in enumerate(pilgrim_data_list, 1):
+            print(f"\n   [{idx}/{len(pilgrim_data_list)}] Записываем: {pilgrim.get('last_name', '')} {pilgrim.get('first_name', '')}")
 
             updates = []
 
@@ -773,11 +866,19 @@ async def write_open_date_to_certificate(pilgrim_data_list, booking_data):
             else:
                 print(f"   ⚠️ Нет данных для записи паломника")
 
-        print(f"\n✅ Записано {len(saved_rows)} паломников в Certificate 2025")
+        print(f"\n{'='*60}")
+        print(f"✅ УСПЕШНО: Записано {len(saved_rows)} паломников")
+        print(f"   📊 Таблица: {ss.title}")
+        print(f"   📄 Лист: {ws.title}")
+        print(f"   📍 Строки: {saved_rows}")
+        print(f"{'='*60}\n")
         return saved_rows
 
     except Exception as e:
-        print(f"❌ Ошибка записи в Certificate таблицу: {e}")
+        print(f"\n{'='*60}")
+        print(f"❌ ОШИБКА записи в Certificate таблицу")
+        print(f"   {type(e).__name__}: {e}")
+        print(f"{'='*60}\n")
         import traceback
         traceback.print_exc()
         return []
