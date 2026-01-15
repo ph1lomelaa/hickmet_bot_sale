@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Разметка паспортов для ML</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .ocr-text {
+            background: #f9f9f9;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-warning {
+            background: #ffc107;
+            color: black;
+        }
+        .btn:hover {
+            opacity: 0.9;
+        }
+        .stats {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .stats-item {
+            display: inline-block;
+            margin-right: 20px;
+        }
+        .highlight {
+            background: yellow;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏷️ Разметка паспортов для обучения ML модели</h1>
+
+    <div class="stats">
+        <div class="stats-item">📊 Размечено: <strong id="annotated-count">0</strong></div>
+        <div class="stats-item">📁 Всего файлов: <strong id="total-count">0</strong></div>
+        <div class="stats-item">⏱️ Среднее время: <strong id="avg-time">0</strong> сек</div>
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <h2>📄 OCR Текст</h2>
+            <div class="form-group">
+                <label>Файл паспорта:</label>
+                <input type="file" id="passport-file" accept=".pdf,.png,.jpg,.jpeg">
+            </div>
+            <div class="ocr-text" id="ocr-display">
+                Загрузите паспорт или вставьте OCR текст...
+            </div>
+            <div class="form-group">
+                <label>Или вставьте OCR текст:</label>
+                <textarea id="ocr-input" rows="3" style="width: 100%; font-family: monospace;"></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="loadOCRText()">Загрузить текст</button>
+        </div>
+
+        <div class="panel">
+            <h2>✏️ Разметка данных</h2>
+            <form id="annotation-form">
+                <div class="form-group">
+                    <label>Фамилия (Last Name):</label>
+                    <input type="text" id="last-name" placeholder="GAJIYEV">
+                </div>
+
+                <div class="form-group">
+                    <label>Имя (First Name):</label>
+                    <input type="text" id="first-name" placeholder="ASKER">
+                </div>
+
+                <div class="form-group">
+                    <label>ИИН (12 цифр):</label>
+                    <input type="text" id="iin" placeholder="800306302949" maxlength="12">
+                </div>
+
+                <div class="form-group">
+                    <label>Номер документа:</label>
+                    <input type="text" id="document-number" placeholder="N19640426">
+                </div>
+
+                <div class="form-group">
+                    <label>Дата рождения (DD.MM.YYYY):</label>
+                    <input type="text" id="date-of-birth" placeholder="06.03.1980">
+                </div>
+
+                <div class="form-group">
+                    <label>Пол:</label>
+                    <select id="gender">
+                        <option value="">Выберите</option>
+                        <option value="M">M (Мужской)</option>
+                        <option value="F">F (Женский)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Срок действия (DD.MM.YYYY):</label>
+                    <input type="text" id="expiration-date" placeholder="24.12.2035">
+                </div>
+
+                <div class="form-group">
+                    <label>Национальность:</label>
+                    <input type="text" id="nationality" placeholder="KAZ" value="KAZ">
+                </div>
+
+                <div style="margin-top: 20px;">
+                    <button type="button" class="btn btn-success" onclick="saveAnnotation()">💾 Сохранить</button>
+                    <button type="button" class="btn btn-warning" onclick="skipPassport()">⏭️ Пропустить</button>
+                    <button type="button" class="btn btn-primary" onclick="downloadDataset()">📥 Скачать датасет</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let annotations = [];
+        let currentFile = null;
+        let startTime = null;
+
+        // Загрузка сохраненных аннотаций из localStorage
+        function loadAnnotations() {
+            const saved = localStorage.getItem('passport_annotations');
+            if (saved) {
+                annotations = JSON.parse(saved);
+                updateStats();
+            }
+        }
+
+        // Сохранение аннотаций в localStorage
+        function saveAnnotations() {
+            localStorage.setItem('passport_annotations', JSON.stringify(annotations));
+            updateStats();
+        }
+
+        // Обновление статистики
+        function updateStats() {
+            document.getElementById('annotated-count').textContent = annotations.length;
+
+            if (annotations.length > 0) {
+                const times = annotations.map(a => a.annotation_time || 0).filter(t => t > 0);
+                const avgTime = times.length > 0 ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
+                document.getElementById('avg-time').textContent = avgTime;
+            }
+        }
+
+        // Загрузка OCR текста
+        function loadOCRText() {
+            const input = document.getElementById('ocr-input').value.trim();
+            if (input) {
+                document.getElementById('ocr-display').textContent = input;
+                startTime = Date.now();
+                highlightText();
+            }
+        }
+
+        // Подсветка найденных данных в тексте
+        function highlightText() {
+            const text = document.getElementById('ocr-display').textContent;
+            let highlighted = text;
+
+            // Подсветка ИИН
+            highlighted = highlighted.replace(/\b(\d{12})\b/g, '<span class="highlight" title="Возможно ИИН">$1</span>');
+
+            // Подсветка номера документа
+            highlighted = highlighted.replace(/\b(N\d{8,9})\b/gi, '<span class="highlight" title="Возможно номер документа">$1</span>');
+
+            document.getElementById('ocr-display').innerHTML = highlighted;
+        }
+
+        // Обработка загрузки файла
+        document.getElementById('passport-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                currentFile = file.name;
+                // В реальном приложении здесь был бы вызов OCR API
+                alert('В продакшн версии здесь будет автоматический OCR.\nПока вставьте текст вручную.');
+            }
+        });
+
+        // Сохранение аннотации
+        function saveAnnotation() {
+            const annotation = {
+                file: currentFile || `passport_${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                annotation_time: startTime ? Math.round((Date.now() - startTime) / 1000) : 0,
+                ocr_text: document.getElementById('ocr-display').textContent,
+                labels: {
+                    last_name: document.getElementById('last-name').value.trim().toUpperCase(),
+                    first_name: document.getElementById('first-name').value.trim().toUpperCase(),
+                    iin: document.getElementById('iin').value.trim(),
+                    document_number: document.getElementById('document-number').value.trim().toUpperCase(),
+                    date_of_birth: document.getElementById('date-of-birth').value.trim(),
+                    gender: document.getElementById('gender').value,
+                    expiration_date: document.getElementById('expiration-date').value.trim(),
+                    nationality: document.getElementById('nationality').value.trim().toUpperCase()
+                }
+            };
+
+            // Валидация
+            if (!annotation.labels.last_name || !annotation.labels.first_name) {
+                alert('⚠️ Фамилия и имя обязательны!');
+                return;
+            }
+
+            annotations.push(annotation);
+            saveAnnotations();
+
+            alert('✅ Сохранено! Всего размечено: ' + annotations.length);
+            clearForm();
+        }
+
+        // Пропустить паспорт
+        function skipPassport() {
+            if (confirm('Пропустить этот паспорт?')) {
+                clearForm();
+            }
+        }
+
+        // Очистка формы
+        function clearForm() {
+            document.getElementById('annotation-form').reset();
+            document.getElementById('ocr-display').textContent = 'Загрузите следующий паспорт...';
+            document.getElementById('ocr-input').value = '';
+            currentFile = null;
+            startTime = null;
+        }
+
+        // Скачать датасет
+        function downloadDataset() {
+            if (annotations.length === 0) {
+                alert('⚠️ Нет размеченных данных для скачивания!');
+                return;
+            }
+
+            const dataStr = JSON.stringify(annotations, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+
+            const exportName = `passport_dataset_${annotations.length}_${Date.now()}.json`;
+
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportName);
+            linkElement.click();
+
+            alert(`✅ Датасет сохранен: ${annotations.length} паспортов`);
+        }
+
+        // Инициализация
+        loadAnnotations();
+    </script>
+</body>
+</html>

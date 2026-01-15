@@ -1,0 +1,2 @@
+"""Bull bot package."""
+

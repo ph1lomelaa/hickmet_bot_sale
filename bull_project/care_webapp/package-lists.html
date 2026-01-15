@@ -335,32 +335,32 @@
 
         .download-passport-compact {
             width: 100%;
-            padding: 10px 18px;
-            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
-            color: var(--success-text);
-            border: 2px solid var(--success-text);
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
             border-radius: 12px;
-            font-size: 13px;
+            background: linear-gradient(135deg, #FFFFFF 0%, var(--bg-secondary) 100%);
+            color: var(--accent-dark);
+            font-size: 14px;
             font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             margin-bottom: 8px;
-            box-shadow: 0 2px 8px rgba(46, 125, 50, 0.15);
+            box-shadow: var(--shadow-soft);
         }
 
         .download-passport-compact:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(46, 125, 50, 0.25);
-            background: var(--success-bg);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-medium);
+            border-color: var(--accent-light);
+            background: var(--bg-secondary);
         }
 
         .download-passport-compact:active:not(:disabled) {
             transform: translateY(0);
-            box-shadow: 0 1px 4px rgba(46, 125, 50, 0.2);
         }
 
         .download-passport-compact:disabled {
-            opacity: 0.4;
+            opacity: 0.55;
             cursor: not-allowed;
             transform: none;
         }
@@ -798,28 +798,20 @@
         }
 
         async function downloadPassportPDF(event, bookingId) {
-            event.stopPropagation();
+            event?.preventDefault();
+            event?.stopPropagation();
 
             try {
-                const response = await fetch(`${API_URL}/api/care/passport-pdf/${bookingId}`, {
-                    headers: {
-                        'ngrok-skip-browser-warning': '1'
-                    }
-                });
+                const directUrl = `${API_URL}/api/care/passport-pdf/${bookingId}?ngrok-skip-browser-warning=1`;
 
-                if (!response.ok) {
-                    throw new Error('Ошибка загрузки паспорта');
+                // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую
+                if (window.Telegram?.WebApp) {
+                    window.Telegram.WebApp.openLink(directUrl);
+                    return;
                 }
 
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `passport_${bookingId}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
+                // Обычный браузер: тоже открываем прямую ссылку (сервер сам отдаст файл)
+                window.open(directUrl, '_blank', 'noopener,noreferrer');
             } catch (error) {
                 console.error('Download error:', error);
                 alert('Ошибка при скачивании паспорта');

@@ -120,8 +120,6 @@ async def show_packages_list(call: CallbackQuery):
         cb_data = f"open_pkg:{pkg_name[:25]}"
         kb.append([InlineKeyboardButton(text=f"📦 {display_name}", callback_data=cb_data)])
 
-    kb.append([InlineKeyboardButton(text="🔙 Главное меню", callback_data="main_menu")])
-
     with suppress(TelegramBadRequest):
         await call.message.edit_text(
             "📂 <b>ИСТОРИЯ ВАШИХ БРОНИРОВАНИЙ</b>\n\nВыберите пакет:",
@@ -224,8 +222,7 @@ async def view_booking_card(call: CallbackQuery):
             text="♻️ ПЕРЕНЕСТИ БРОНЬ",
             callback_data=f"reschedule:{b.id}"
         )],
-        [InlineKeyboardButton(text="🔙 Назад к пакету", callback_data=back_cb)],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        [InlineKeyboardButton(text="🔙 Назад к пакету", callback_data=back_cb)]
     ]
 
     await call.message.edit_text(

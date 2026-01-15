@@ -349,13 +349,13 @@ class BookingUpdateIn(BaseModel):
 # -----------------------------------------------------------------------------
 
 @app.get("/api/packages")
-async def api_packages(date: str):
+async def api_packages(date: str, force: bool = False):
     """Поиск пакетов по дате (Smart Search)."""
     try:
-        print(f"🔍 Запрос пакетов для даты: '{date}'")
+        print(f"🔍 Запрос пакетов для даты: '{date}' (force={force})")
 
         # Правильный вызов асинхронной функции
-        results = await get_packages_by_date(date_part=date, force=False)
+        results = await get_packages_by_date(date_part=date, force=force)
 
         print(f"✅ Результат поиска: found={results.get('found')}, data_count={len(results.get('data', []))}")
 

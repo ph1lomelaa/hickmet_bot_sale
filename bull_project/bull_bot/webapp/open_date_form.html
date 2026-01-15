@@ -204,7 +204,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>✍️ Заполнить OPEN DATE</h1>
+        <h1>Заполнить OPEN DATE</h1>
         <p>Бронирование без конкретной даты</p>
     </div>
 
@@ -255,6 +255,8 @@
     </button>
 
     <script>
+        const API_URL = window.BULL_API_URL || 'https://marxist-noell-uslima2005-12a246c3.koyeb.app';
+        console.log('✅ API_URL установлен:', API_URL);
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📆 Выбрать дату для паломника</title>
+    <title>Выбрать дату для паломника</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="config.js"></script>
     <style>
@@ -209,6 +209,8 @@
     </div>
 
     <script>
+        const API_URL = window.BULL_API_URL || 'https://marxist-noell-uslima2005-12a246c3.koyeb.app';
+        console.log('✅ API_URL установлен:', API_URL);
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();

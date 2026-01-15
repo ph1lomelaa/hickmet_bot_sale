@@ -8,7 +8,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Системные зависимости для tesseract/pdf2image/opencv
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     tesseract-ocr \
@@ -20,17 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Зависимости Python
 COPY bull_project/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Код приложения
 COPY bull_project /app/bull_project
 
-# Пусть Python видит проект
+
 ENV PYTHONPATH=/app
 
 EXPOSE 8000
 
-# Запускаем API-сервер
 CMD ["python", "-m", "bull_project.bull_bot.core.api_server"]
