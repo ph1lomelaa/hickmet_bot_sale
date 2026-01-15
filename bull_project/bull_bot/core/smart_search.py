@@ -122,9 +122,18 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
                     if not packages_map:
                         continue
 
+                    # Вытаскиваем название листа (убираем дату)
                     suffix = (sheet_name or "").replace(date_part, "").strip(" -.|")
+
                     for _, pkg_name in packages_map.items():
-                        display_name = f"{pkg_name} [{suffix}]" if suffix else pkg_name
+                        # 🔥 ВСЕГДА добавляем название листа (месяц) для ясности
+                        # Это помогает менеджерам не путаться когда пакеты с разных листов
+                        if suffix:
+                            display_name = f"{pkg_name} [{suffix}]"
+                        else:
+                            # Если suffix пустой, показываем полное название листа
+                            display_name = f"{pkg_name} [{sheet_name}]"
+
                         collected.append({
                             "d": date_part,
                             "n": display_name,
