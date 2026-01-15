@@ -95,6 +95,7 @@ class PassportPDFGenerator:
         Returns:
             True если успешно, False если ошибка
         """
+        compressed_path = None
         try:
             # Открываем изображение
             img = Image.open(image_path)
@@ -102,6 +103,50 @@ class PassportPDFGenerator:
 
             if self.debug:
                 print(f"🖼️  Размер изображения: {img_width}x{img_height}")
+
+            # --- Оптимизация размера PDF ---
+            # В PDF важен не "DPI", а размер и компрессия встроенного растра.
+            # Сохраняем визуальное качество, но уменьшаем вес:
+            # - ограничиваем максимальную сторону (обычно 1600–2200px достаточно для паспорта)
+            # - JPEG quality 85 (практически без заметной деградации)
+            # - optimize/progressive
+            try:
+                max_side = 2000
+                quality = 85
+
+                # Приводим к RGB (чтобы корректно сохранить JPEG)
+                if img.mode != "RGB":
+                    img_rgb = img.convert("RGB")
+                else:
+                    img_rgb = img
+
+                w, h = img_rgb.size
+                if max(w, h) > max_side:
+                    scale = max_side / float(max(w, h))
+                    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                    if self.debug:
+                        print(f"📉 Downscale для PDF: {w}x{h} → {new_size[0]}x{new_size[1]}")
+                    img_rgb = img_rgb.resize(new_size, Image.LANCZOS)
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tf:
+                    compressed_path = tf.name
+                    img_rgb.save(
+                        compressed_path,
+                        "JPEG",
+                        quality=quality,
+                        optimize=True,
+                        progressive=True
+                    )
+                if self.debug:
+                    try:
+                        size_kb = os.path.getsize(compressed_path) / 1024
+                        print(f"📦 Сжатое изображение для PDF: {size_kb:.1f} KB")
+                    except Exception:
+                        pass
+            except Exception as e:
+                compressed_path = None
+                if self.debug:
+                    print(f"⚠️ Не удалось подготовить сжатое изображение для PDF: {e}")
 
             # Определяем размер страницы PDF (адаптируем под изображение)
             # Используем соотношение сторон изображения
@@ -122,7 +167,7 @@ class PassportPDFGenerator:
 
             # Добавляем изображение на всю страницу
             c.drawImage(
-                image_path,
+                compressed_path or image_path,
                 0,
                 0,
                 width=page_width,
@@ -184,6 +229,12 @@ class PassportPDFGenerator:
                 import traceback
                 traceback.print_exc()
             return False
+        finally:
+            if compressed_path and os.path.exists(compressed_path):
+                try:
+                    os.remove(compressed_path)
+                except Exception:
+                    pass
 
     def convert_passport_to_pdf(
         self,
