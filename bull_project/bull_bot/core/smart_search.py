@@ -72,7 +72,8 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
         print(f"🔍 [DEBUG] Поиск пакетов для даты: {date_part}")
         print(f"📚 [DEBUG] Найдено таблиц: {len(target_tables)} - {list(target_tables.keys())}")
 
-        collected: List[dict] = []
+        # Сначала собираем все пакеты БЕЗ суффиксов
+        temp_collected: List[dict] = []
 
         for t_name, t_id in target_tables.items():
             try:
@@ -124,21 +125,17 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
 
                     # Вытаскиваем название листа (убираем дату)
                     suffix = (sheet_name or "").replace(date_part, "").strip(" -.|")
+                    if not suffix:
+                        suffix = sheet_name  # Если suffix пустой, используем полное название
 
                     for _, pkg_name in packages_map.items():
-                        # 🔥 ВСЕГДА добавляем название листа (месяц) для ясности
-                        # Это помогает менеджерам не путаться когда пакеты с разных листов
-                        if suffix:
-                            display_name = f"{pkg_name} [{suffix}]"
-                        else:
-                            # Если suffix пустой, показываем полное название листа
-                            display_name = f"{pkg_name} [{sheet_name}]"
-
-                        collected.append({
+                        # Пока собираем без суффиксов - добавим их позже только если нужно
+                        temp_collected.append({
                             "d": date_part,
-                            "n": display_name,
+                            "n": pkg_name,  # Оригинальное название без суффикса
                             "s": sheet_name,
-                            "t": t_id
+                            "t": t_id,
+                            "suffix": suffix  # Сохраняем суффикс для возможного добавления
                         })
 
             except Exception as e:
@@ -146,8 +143,49 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
                 print(f"Ошибка чтения таблицы {t_name}: {e}")
                 continue
 
-        if not collected:
+        if not temp_collected:
             return {"found": False, "error": "Рейсы не найдены."}
+
+        # 🔍 ОПРЕДЕЛЯЕМ ДУБЛИКАТЫ: Проверяем какие названия пакетов встречаются больше 1 раза
+        # с разными sheet_name или table_id
+        from collections import defaultdict
+
+        package_occurrences = defaultdict(list)
+        for item in temp_collected:
+            pkg_name = item["n"]
+            key = (item["s"], item["t"])  # (sheet_name, table_id)
+            package_occurrences[pkg_name].append(key)
+
+        # Находим пакеты которые встречаются с разными (sheet_name, table_id)
+        duplicates = set()
+        for pkg_name, keys in package_occurrences.items():
+            if len(set(keys)) > 1:  # Уникальных комбинаций больше 1
+                duplicates.add(pkg_name)
+
+        print(f"📦 [DEBUG] Найдено дубликатов пакетов: {len(duplicates)}")
+        if duplicates:
+            print(f"   Дубликаты: {list(duplicates)[:5]}...")  # Показываем первые 5
+
+        # 🎯 ФОРМИРУЕМ ФИНАЛЬНЫЙ СПИСОК: Добавляем суффикс ТОЛЬКО к дубликатам
+        collected: List[dict] = []
+        for item in temp_collected:
+            pkg_name = item["n"]
+            suffix = item["suffix"]
+
+            if pkg_name in duplicates:
+                # Это дубликат - добавляем суффикс
+                display_name = f"{pkg_name} [{suffix}]"
+                print(f"   🔄 Дубликат: '{pkg_name}' → '{display_name}'")
+            else:
+                # Уникальный пакет - оставляем как есть
+                display_name = pkg_name
+
+            collected.append({
+                "d": item["d"],
+                "n": display_name,
+                "s": item["s"],
+                "t": item["t"]
+            })
 
         DATE_CACHE[date_part] = (time.time(), collected)
         return {"found": True, "data": collected}
