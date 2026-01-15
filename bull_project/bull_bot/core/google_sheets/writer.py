@@ -459,23 +459,72 @@ async def check_train_exists(sheet_id, sheet_name, package_name):
     except: return False
 
 async def clear_booking_in_sheets(sheet_id, sheet_name, row_number, package_name):
+    """
+    Очищает данные брони из Google Sheets.
+    🎨 Также убирает цветную окраску с ячеек имени и фамилии.
+    """
     client = get_google_client()
-    if not client or not row_number: return False
+    if not client or not row_number:
+        return False
+
     try:
-        ss = client.open_by_key(sheet_id); ws = get_worksheet_by_title(ss, sheet_name); all_values = ws.get_all_values()
-        pkg_row = find_package_row(all_values, package_name); cols = None
+        ss = client.open_by_key(sheet_id)
+        ws = get_worksheet_by_title(ss, sheet_name)
+        all_values = ws.get_all_values()
+
+        # Находим колонки
+        pkg_row = find_package_row(all_values, package_name)
+        cols = None
         if pkg_row is not None:
             for r in range(pkg_row, min(pkg_row + 30, len(all_values))):
                 cols = find_headers_extended(all_values[r])
-                if cols: break
-        if not cols: return False
+                if cols:
+                    break
+
+        if not cols:
+            return False
+
+        # Очищаем данные
         fields_to_clear = ['last_name', 'first_name', 'gender', 'dob', 'doc_num', 'doc_exp', 'price', 'comment', 'manager', 'train', 'client_phone']
         updates = []
         for key in fields_to_clear:
-            if key in cols: updates.append({'range': f"{row_col_to_a1(row_number, cols[key] + 1)}", 'values': [['']]})
-        if updates: ws.batch_update(updates); return True
+            if key in cols:
+                updates.append({'range': f"{row_col_to_a1(row_number, cols[key] + 1)}", 'values': [['']]})
+
+        if updates:
+            ws.batch_update(updates)
+
+        # 🎨 УБИРАЕМ ЦВЕТНУЮ ОКРАСКУ с ячеек имени и фамилии
+        print(f"   🧹 Очищаем окраску ячеек в строке {row_number}...")
+
+        # Белый фон (по умолчанию)
+        white_format = {
+            "backgroundColor": {
+                "red": 1.0,
+                "green": 1.0,
+                "blue": 1.0
+            },
+            "textFormat": {
+                "bold": False
+            }
+        }
+
+        # Очищаем last_name и first_name
+        for key in ['last_name', 'first_name']:
+            if key in cols:
+                cell = row_col_to_a1(row_number, cols[key] + 1)
+                try:
+                    ws.format(cell, white_format)
+                    print(f"      ✅ Окраска убрана: {cell}")
+                except Exception as e:
+                    print(f"      ⚠️ Не удалось очистить окраску {cell}: {e}")
+
+        print(f"   ✅ Бронь очищена и окраска убрана")
+        return True
+
+    except Exception as e:
+        print(f"❌ Ошибка очистки брони: {e}")
         return False
-    except: return False
 
 def find_last_content_row(all_values):
     """Находит последнюю строку с содержимым на листе"""
