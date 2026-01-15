@@ -123,11 +123,6 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
                     if not packages_map:
                         continue
 
-                    # Вытаскиваем название листа (убираем дату)
-                    suffix = (sheet_name or "").replace(date_part, "").strip(" -.|")
-                    if not suffix:
-                        suffix = sheet_name  # Если suffix пустой, используем полное название
-
                     for _, pkg_name in packages_map.items():
                         # Пока собираем без суффиксов - добавим их позже только если нужно
                         temp_collected.append({
@@ -135,7 +130,7 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
                             "n": pkg_name,  # Оригинальное название без суффикса
                             "s": sheet_name,
                             "t": t_id,
-                            "suffix": suffix  # Сохраняем суффикс для возможного добавления
+                            "table_name": t_name  # Сохраняем название ТАБЛИЦЫ для суффикса
                         })
 
             except Exception as e:
@@ -175,11 +170,18 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
         collected: List[dict] = []
         for item in temp_collected:
             pkg_name = item["n"]
-            suffix = item["suffix"]
+            table_name = item["table_name"]
+            sheet_name = item["s"]
 
             if pkg_name in packages_with_duplicates:
-                # Это пакет с датой которая встречается на разных листах - добавляем суффикс
-                display_name = f"{pkg_name} [{suffix}]"
+                # Это пакет с датой которая встречается на разных листах
+                # Показываем И название таблицы И название листа
+                # Вытаскиваем суффикс листа (убираем дату)
+                sheet_suffix = (sheet_name or "").replace(date_part, "").strip(" -.|")
+                if not sheet_suffix:
+                    sheet_suffix = sheet_name
+
+                display_name = f"{pkg_name} [{table_name} / {sheet_suffix}]"
                 print(f"   🔄 Дубликат по дате: '{pkg_name}' → '{display_name}'")
             else:
                 # Уникальный пакет (дата встречается только на одном листе) - оставляем как есть
