@@ -104,49 +104,46 @@ class PassportPDFGenerator:
             if self.debug:
                 print(f"🖼️  Размер изображения: {img_width}x{img_height}")
 
-            # --- Оптимизация размера PDF ---
-            # В PDF важен не "DPI", а размер и компрессия встроенного растра.
-            # Сохраняем визуальное качество, но уменьшаем вес:
-            # - ограничиваем максимальную сторону (обычно 1600–2200px достаточно для паспорта)
-            # - JPEG quality 85 (практически без заметной деградации)
-            # - optimize/progressive
-            try:
-                max_side = 2000
-                quality = 85
+            def prepare_raster(max_side: int, quality: int) -> Optional[str]:
+                try:
+                    if img.mode != "RGB":
+                        img_rgb = img.convert("RGB")
+                    else:
+                        img_rgb = img
 
-                # Приводим к RGB (чтобы корректно сохранить JPEG)
-                if img.mode != "RGB":
-                    img_rgb = img.convert("RGB")
-                else:
-                    img_rgb = img
+                    w, h = img_rgb.size
+                    if max(w, h) > max_side:
+                        scale = max_side / float(max(w, h))
+                        new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                        if self.debug:
+                            print(f"📉 Downscale для PDF: {w}x{h} → {new_size[0]}x{new_size[1]}")
+                        img_rgb = img_rgb.resize(new_size, Image.LANCZOS)
 
-                w, h = img_rgb.size
-                if max(w, h) > max_side:
-                    scale = max_side / float(max(w, h))
-                    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tf:
+                        out_path = tf.name
+                        img_rgb.save(
+                            out_path,
+                            "JPEG",
+                            quality=quality,
+                            optimize=True,
+                            progressive=True
+                        )
                     if self.debug:
-                        print(f"📉 Downscale для PDF: {w}x{h} → {new_size[0]}x{new_size[1]}")
-                    img_rgb = img_rgb.resize(new_size, Image.LANCZOS)
+                        try:
+                            size_kb = os.path.getsize(out_path) / 1024
+                            print(f"📦 JPEG для PDF (max_side={max_side}, q={quality}): {size_kb:.1f} KB")
+                        except Exception:
+                            pass
+                    return out_path
+                except Exception as e:
+                    if self.debug:
+                        print(f"⚠️ Не удалось подготовить JPEG для PDF (max_side={max_side}, q={quality}): {e}")
+                    return None
 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tf:
-                    compressed_path = tf.name
-                    img_rgb.save(
-                        compressed_path,
-                        "JPEG",
-                        quality=quality,
-                        optimize=True,
-                        progressive=True
-                    )
-                if self.debug:
-                    try:
-                        size_kb = os.path.getsize(compressed_path) / 1024
-                        print(f"📦 Сжатое изображение для PDF: {size_kb:.1f} KB")
-                    except Exception:
-                        pass
-            except Exception as e:
-                compressed_path = None
-                if self.debug:
-                    print(f"⚠️ Не удалось подготовить сжатое изображение для PDF: {e}")
+            # OCR считаем один раз (он самый тяжелый), а PDF при необходимости пересобираем
+            ocr_results = []
+            if add_ocr_layer:
+                ocr_results = self.extract_text_with_positions(image_path)
 
             # Определяем размер страницы PDF (адаптируем под изображение)
             # Используем соотношение сторон изображения
@@ -162,61 +159,69 @@ class PassportPDFGenerator:
                 page_height = 842
                 page_width = 842 * aspect_ratio
 
-            # Создаем PDF
-            c = canvas.Canvas(output_pdf_path, pagesize=(page_width, page_height))
+            target_max_bytes = 1_150_000  # ~1.1 MB
+            presets = [
+                (2000, 85),
+                (1800, 80),
+                (1600, 75),
+                (1400, 70),
+            ]
 
-            # Добавляем изображение на всю страницу
-            c.drawImage(
-                compressed_path or image_path,
-                0,
-                0,
-                width=page_width,
-                height=page_height,
-                preserveAspectRatio=True
-            )
+            last_size = None
+            for (max_side, quality) in presets:
+                # cleanup previous raster
+                if compressed_path and os.path.exists(compressed_path):
+                    try:
+                        os.remove(compressed_path)
+                    except Exception:
+                        pass
+                compressed_path = prepare_raster(max_side=max_side, quality=quality)
 
-            # Добавляем OCR текстовый слой
-            if add_ocr_layer:
-                ocr_results = self.extract_text_with_positions(image_path)
+                c = canvas.Canvas(output_pdf_path, pagesize=(page_width, page_height))
+                c.drawImage(
+                    compressed_path or image_path,
+                    0,
+                    0,
+                    width=page_width,
+                    height=page_height,
+                    preserveAspectRatio=True
+                )
 
-                # Коэффициенты масштабирования
-                scale_x = page_width / img_width
-                scale_y = page_height / img_height
-
-                if self.debug:
-                    print(f"📊 Масштаб: X={scale_x:.2f}, Y={scale_y:.2f}")
-
-                # Добавляем каждый текстовый блок как невидимый текст
-                for (bbox, text, confidence) in ocr_results:
-                    # Пропускаем текст с низкой уверенностью (повышен порог с 0.4 до 0.5)
-                    if confidence < 0.5:
-                        continue
-
-                    # bbox = [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
-                    # Берем левый нижний угол для позиционирования
-                    x = bbox[0][0] * scale_x
-                    # В PDF координаты Y идут снизу вверх, поэтому инвертируем
-                    y = page_height - (bbox[0][1] * scale_y)
-
-                    # Вычисляем ширину и высоту текстового блока
-                    text_width = (bbox[1][0] - bbox[0][0]) * scale_x
-                    text_height = (bbox[2][1] - bbox[0][1]) * scale_y
-
-                    # Вычисляем размер шрифта на основе высоты блока
-                    font_size = max(8, min(text_height * 0.8, 14))
-
-                    # Добавляем невидимый текст (renderMode=3 делает текст невидимым)
-                    text_obj = c.beginText(x, y)
-                    text_obj.setTextRenderMode(3)  # Невидимый текст
-                    text_obj.setFont("Helvetica", font_size)
-                    text_obj.textLine(text)
-                    c.drawText(text_obj)
+                if add_ocr_layer and ocr_results:
+                    scale_x = page_width / img_width
+                    scale_y = page_height / img_height
 
                     if self.debug:
-                        print(f"  ✓ Добавлен текст: '{text}' на позиции ({x:.1f}, {y:.1f})")
+                        print(f"📊 Масштаб: X={scale_x:.2f}, Y={scale_y:.2f}")
 
-            # Сохраняем PDF
-            c.save()
+                    for (bbox, text, confidence) in ocr_results:
+                        if confidence < 0.5:
+                            continue
+
+                        x = bbox[0][0] * scale_x
+                        y = page_height - (bbox[0][1] * scale_y)
+                        text_height = (bbox[2][1] - bbox[0][1]) * scale_y
+                        font_size = max(8, min(text_height * 0.8, 14))
+
+                        text_obj = c.beginText(x, y)
+                        text_obj.setTextRenderMode(3)
+                        text_obj.setFont("Helvetica", font_size)
+                        text_obj.textLine(text)
+                        c.drawText(text_obj)
+
+                c.save()
+
+                try:
+                    last_size = os.path.getsize(output_pdf_path)
+                except Exception:
+                    last_size = None
+
+                if self.debug and last_size is not None:
+                    print(f"📄 PDF size after preset(max_side={max_side}, q={quality}): {last_size} bytes")
+
+                # если не получилось сжать до цели — всё равно оставляем лучший из пресетов
+                if last_size is not None and last_size <= target_max_bytes:
+                    break
 
             if self.debug:
                 print(f"✅ PDF создан: {output_pdf_path}")
