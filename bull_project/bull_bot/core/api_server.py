@@ -1976,9 +1976,11 @@ async def get_passport_pdf(booking_id: int):
         try:
             import tempfile
             from reportlab.pdfgen import canvas
+            from reportlab.lib.utils import ImageReader
             from PIL import Image
             from fastapi import Response
             import urllib.parse
+            import io
 
             # Создаем временный PDF файл
             temp_pdf = tempfile.NamedTemporaryFile(
@@ -2003,9 +2005,44 @@ async def get_passport_pdf(booking_id: int):
                 page_height = 842
                 page_width = 842 * aspect_ratio
 
-            c = canvas.Canvas(temp_pdf_path, pagesize=(page_width, page_height))
-            c.drawImage(passport_path, 0, 0, width=page_width, height=page_height)
-            c.save()
+            # Пишем PDF с адаптивным сжатием изображения (чтобы не было 10+ MB)
+            def prepare_jpeg(max_side: int, quality: int) -> bytes:
+                if img.mode != "RGB":
+                    img_rgb = img.convert("RGB")
+                else:
+                    img_rgb = img
+                w, h = img_rgb.size
+                if max(w, h) > max_side:
+                    scale = max_side / float(max(w, h))
+                    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                    img_rgb = img_rgb.resize(new_size, Image.LANCZOS)
+                buf = io.BytesIO()
+                img_rgb.save(buf, format="JPEG", quality=quality, optimize=True, progressive=True)
+                return buf.getvalue()
+
+            presets = [
+                (2000, 85),
+                (1800, 80),
+                (1600, 75),
+                (1400, 70),
+            ]
+            target_max_bytes = 1_150_000  # ~1.1MB
+            last_size = None
+
+            for (max_side, quality) in presets:
+                jpeg_bytes = prepare_jpeg(max_side=max_side, quality=quality)
+
+                c = canvas.Canvas(temp_pdf_path, pagesize=(page_width, page_height))
+                c.setPageCompression(1)
+                c.drawImage(ImageReader(io.BytesIO(jpeg_bytes)), 0, 0, width=page_width, height=page_height)
+                c.save()
+
+                try:
+                    last_size = os.path.getsize(temp_pdf_path)
+                except Exception:
+                    last_size = None
+                if last_size is not None and last_size <= target_max_bytes:
+                    break
 
             result_path = temp_pdf_path
 
