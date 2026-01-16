@@ -273,11 +273,13 @@ async def process_passport(message: Message, state: FSMContext):
     curr = data.get('current_pilgrim', 1)
     fid = message.document.file_id if message.document else message.photo[-1].file_id
     ext = os.path.splitext(message.document.file_name)[1] if message.document and message.document.file_name else ".jpg"
-    temp_path = os.path.join(ABS_UPLOADS_DIR, f"{message.from_user.id}_p{curr}_temp{ext}")
+    ts = int(time.time() * 1000)
+    # Оригинал сохраняем как есть (чтобы в будущем скачивали без потерь качества)
+    original_path = os.path.join(ABS_UPLOADS_DIR, f"tg_upload_{message.from_user.id}_{ts}_p{curr}{ext}")
 
-    # Сначала загружаем во временный файл
-    await bot.download_file((await bot.get_file(fid)).file_path, temp_path)
-    print(f"📥 Файл загружен: {temp_path}")
+    # Сохраняем оригинал
+    await bot.download_file((await bot.get_file(fid)).file_path, original_path)
+    print(f"📥 Оригинал загружен: {original_path}")
 
     # Конвертируем в PNG (итоговый путь всегда .png)
     png_path = os.path.join(ABS_UPLOADS_DIR, f"{message.from_user.id}_p{curr}.png")
@@ -286,10 +288,10 @@ async def process_passport(message: Message, state: FSMContext):
         from pdf2image import convert_from_path
         from PIL import Image
 
-        if temp_path.lower().endswith('.pdf'):
+        if original_path.lower().endswith('.pdf'):
             # Конвертируем PDF в PNG
             print(f"🔄 Конвертация PDF в PNG...")
-            pages = convert_from_path(temp_path, dpi=300, poppler_path=POPPLER_PATH)
+            pages = convert_from_path(original_path, dpi=300, poppler_path=POPPLER_PATH)
             if pages:
                 pages[0].save(png_path, 'PNG')
                 print(f"✅ PDF сконвертирован в PNG: {png_path}")
@@ -297,20 +299,15 @@ async def process_passport(message: Message, state: FSMContext):
                 raise Exception("Не удалось конвертировать PDF")
         else:
             # Если это изображение, просто конвертируем в PNG
-            img = Image.open(temp_path)
+            img = Image.open(original_path)
             img.save(png_path, 'PNG')
             print(f"✅ Изображение сохранено как PNG: {png_path}")
-
-        # Удаляем временный файл
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-        path = png_path  # Используем PNG путь
-        print(f"📸 Паспорт сохранен в PNG: {path}")
+        path_for_ocr = png_path  # OCR делаем по PNG
+        print(f"📸 PNG для OCR: {path_for_ocr}")
 
     except Exception as e:
         print(f"⚠️ Ошибка конвертации, используем оригинал: {e}")
-        path = temp_path
+        path_for_ocr = original_path
 
     msg = await message.answer("⏳ Читаю данные... (это может занять до 30 сек)\n\n💡 Если долго - можете ввести данные вручную")
 
@@ -322,7 +319,7 @@ async def process_passport(message: Message, state: FSMContext):
             parser = create_passport_parser(debug=(curr <= 3), save_ocr=True)
             # Запускаем парсинг в отдельном потоке (parser.parse блокирующая функция)
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, parser.parse, path)
+            return await loop.run_in_executor(None, parser.parse, path_for_ocr)
 
         try:
             passport_result = await asyncio.wait_for(parse_with_timeout(), timeout=30.0)
@@ -330,7 +327,7 @@ async def process_passport(message: Message, state: FSMContext):
             print(f"⏱️ OCR превысил таймаут 30 секунд")
             with suppress(Exception):
                 await msg.delete()
-            await state.update_data(temp_p={'passport_image_path': path})
+            await state.update_data(temp_p={'passport_image_path': os.path.basename(original_path)})
             await message.answer(
                 "⏱️ <b>Распознавание заняло слишком много времени</b>\n\n"
                 "Пожалуйста, введите <b>Фамилию и Имя</b> вручную:",
@@ -341,7 +338,8 @@ async def process_passport(message: Message, state: FSMContext):
 
         # 🔥 ИСПРАВЛЕНИЕ: Используем to_dict() для получения всех полей
         p_data = passport_result.to_dict()
-        p_data['passport_image_path'] = path  # временно локальный путь
+        # В БД/сервере хотим хранить ОРИГИНАЛ (jpg/pdf), а PNG используем только для OCR.
+        p_data['passport_image_path'] = os.path.basename(original_path)
 
         # Парсер уже выбрал лучшие данные внутри метода parse()
         # Не перезаписываем их данными из MRZ
@@ -368,7 +366,7 @@ async def process_passport(message: Message, state: FSMContext):
         print(f"  📄 Номер паспорта:           {p_data.get('Document Number', 'НЕТ')}")
         print(f"  🆔 ИИН:                      {p_data.get('IIN', 'НЕТ')}")
         print(f"  📅 Срок действия:            {p_data.get('Document Expiration', 'НЕТ')}")
-        print(f"  📸 Путь к файлу:             {path}")
+        print(f"  📸 Оригинал:                 {original_path}")
         print(f"{'='*60}\n")
 
         # Загружаем файл на API, если указан API_BASE_URL
@@ -376,9 +374,10 @@ async def process_passport(message: Message, state: FSMContext):
             try:
                 upload_url = f"{API_BASE_URL}/api/passports/upload"
                 async with aiohttp.ClientSession() as session:
-                    with open(path, "rb") as f:
+                    # Загружаем ОРИГИНАЛЬНЫЙ файл, чтобы он сохранился без конвертации
+                    with open(original_path, "rb") as f:
                         form = aiohttp.FormData()
-                        form.add_field("file", f, filename=os.path.basename(path))
+                        form.add_field("file", f, filename=os.path.basename(original_path))
                         resp = await session.post(upload_url, data=form)
                         res_json = await resp.json()
                         if resp.status == 200 and res_json.get("ok") and res_json.get("path"):

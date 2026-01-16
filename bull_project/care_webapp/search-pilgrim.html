@@ -513,19 +513,19 @@
                 html += `
                     <div class="booking-preview">
                         <div class="booking-detail">
-                            📞 Телефон: <strong>${booking.phone}</strong>
+                            Телефон: <strong>${booking.phone}</strong>
                         </div>
                         <div class="booking-detail">
-                            📦 Пакет: <strong>${booking.package_name}</strong>
+                            Пакет: <strong>${booking.package_name}</strong>
                         </div>
                         <div class="booking-detail">
-                            📅 Дата: <strong>${booking.sheet_name}</strong>
+                            Дата: <strong>${booking.sheet_name}</strong>
                         </div>
                         <div class="booking-detail">
-                            👥 Размещение: <strong>${placement}</strong>
+                            Размещение: <strong>${placement}</strong>
                         </div>
                         <div class="booking-detail">
-                            🏠 Комната: <strong>${booking.room_type}</strong>
+                            Комната: <strong>${booking.room_type}</strong>
                         </div>
                     </div>
 
@@ -534,7 +534,7 @@
                         onclick="downloadPassportPDF(event, ${booking.id})"
                         ${!booking.passport_image_path ? 'disabled title="Паспорт не загружен"' : ''}
                     >
-                        📥 Скачать паспорт
+                        Скачать паспорт
                     </button>
 
                     <button class="details-btn" onclick="toggleDetails(${index})">
@@ -620,7 +620,7 @@
             evt?.stopPropagation();
 
             try {
-                const directUrl = `${API_URL}/api/care/passport-pdf/${bookingId}?ngrok-skip-browser-warning=1`;
+                const directUrl = `${API_URL}/api/care/passport-pdf/${bookingId}?mode=compact&limit_mb=1&ngrok-skip-browser-warning=1`;
 
                 // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую
                 if (window.Telegram?.WebApp) {

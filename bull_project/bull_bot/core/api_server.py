@@ -1905,8 +1905,66 @@ async def get_passport_photo(booking_id: int):
         )
 
 
+@app.get("/api/care/passport-original/{booking_id}")
+async def get_passport_original(booking_id: int):
+    """
+    Возвращает оригинальный файл паспорта (как он сохранен в uploads).
+    Это полезно для внешнего OCR (Tesseract): без PDF-конвертации и без сжатия.
+    """
+    try:
+        booking = await get_booking_by_id(booking_id)
+        if not booking:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "Booking not found"})
+
+        passport_path = booking.passport_image_path
+        if not passport_path and booking.guest_last_name and booking.guest_first_name:
+            passport_path = await get_latest_passport_for_person(booking.guest_last_name, booking.guest_first_name)
+
+        if not passport_path:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "No passport file for this booking"})
+
+        resolved_path = resolve_passport_file_path(passport_path)
+        if not resolved_path or not os.path.exists(resolved_path):
+            return JSONResponse(
+                status_code=404,
+                content={"ok": False, "error": f"Passport file not found: {passport_path}"}
+            )
+
+        file_ext = os.path.splitext(resolved_path)[1].lower()
+        media_types = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.pdf': 'application/pdf'
+        }
+        media_type = media_types.get(file_ext, 'application/octet-stream')
+
+        # Формируем имя файла из ФИО (как в PDF)
+        import re
+        last = (booking.guest_last_name or "passport").strip()
+        first = (booking.guest_first_name or "").strip()
+        safe = re.sub(r"[^a-zA-Z0-9_\\-]+", "_", f"{last}_{first}".strip("_"))
+        download_name = f"{safe}_passport{file_ext}" if safe else f"passport_{booking_id}{file_ext}"
+
+        return FileResponse(
+            resolved_path,
+            media_type=media_type,
+            filename=download_name,
+        )
+
+    except Exception as e:
+        print(f"❌ Ошибка получения оригинала паспорта: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
 @app.get("/api/care/passport-pdf/{booking_id}")
-async def get_passport_pdf(booking_id: int):
+async def get_passport_pdf(
+    booking_id: int,
+    mode: str = Query("compact"),  # compact | ocr
+    limit_mb: float = Query(1.0),
+):
     """
     Возвращает паспорт в формате PDF с текстовым слоем (searchable PDF).
     Если оригинал - изображение, конвертирует в PDF с OCR.
@@ -1961,7 +2019,11 @@ async def get_passport_pdf(booking_id: int):
 
         passport_path = resolved_path
 
-        # Если уже PDF - отдаем как есть
+        mode = (mode or "compact").strip().lower()
+        if mode not in {"compact", "ocr"}:
+            mode = "compact"
+
+        # Если уже PDF - отдаем как есть (не перекодируем, чтобы не портить)
         if passport_path.lower().endswith('.pdf'):
             return FileResponse(
                 passport_path,
@@ -1995,54 +2057,65 @@ async def get_passport_pdf(booking_id: int):
             print(f"🔄 Создание PDF для паспорта {booking_id}...")
 
             img = Image.open(passport_path)
-            img_width, img_height = img.size
-            aspect_ratio = img_width / img_height
+            img.load()
 
-            if aspect_ratio > 1:
-                page_width = 842
-                page_height = 842 / aspect_ratio
-            else:
-                page_height = 842
-                page_width = 842 * aspect_ratio
+            # Для OCR/MRZ важен DPI: 250–300+.
+            target_dpi = 300 if mode == "ocr" else 300
 
-            # Пишем PDF с адаптивным сжатием изображения (чтобы не было 10+ MB)
-            def prepare_jpeg(max_side: int, quality: int) -> bytes:
+            def prepare_jpeg(max_side: int | None, quality: int) -> tuple[bytes, int, int]:
                 if img.mode != "RGB":
                     img_rgb = img.convert("RGB")
                 else:
                     img_rgb = img
+
                 w, h = img_rgb.size
-                if max(w, h) > max_side:
+                if max_side and max(w, h) > max_side:
                     scale = max_side / float(max(w, h))
                     new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
                     img_rgb = img_rgb.resize(new_size, Image.LANCZOS)
+                    w, h = img_rgb.size
+
                 buf = io.BytesIO()
                 img_rgb.save(buf, format="JPEG", quality=quality, optimize=True, progressive=True)
-                return buf.getvalue()
+                return buf.getvalue(), w, h
 
-            presets = [
-                (2000, 85),
-                (1800, 80),
-                (1600, 75),
-                (1400, 70),
-            ]
-            target_max_bytes = 1_150_000  # ~1.1MB
-            last_size = None
-
-            for (max_side, quality) in presets:
-                jpeg_bytes = prepare_jpeg(max_side=max_side, quality=quality)
-
-                c = canvas.Canvas(temp_pdf_path, pagesize=(page_width, page_height))
+            def write_pdf_from_jpeg(jpeg_bytes: bytes, px_w: int, px_h: int):
+                # Физический размер страницы подбираем под target_dpi, чтобы OCR видел четкий текст.
+                page_w = px_w * 72.0 / float(target_dpi)
+                page_h = px_h * 72.0 / float(target_dpi)
+                c = canvas.Canvas(temp_pdf_path, pagesize=(page_w, page_h))
                 c.setPageCompression(1)
-                c.drawImage(ImageReader(io.BytesIO(jpeg_bytes)), 0, 0, width=page_width, height=page_height)
+                c.drawImage(ImageReader(io.BytesIO(jpeg_bytes)), 0, 0, width=page_w, height=page_h)
                 c.save()
 
-                try:
-                    last_size = os.path.getsize(temp_pdf_path)
-                except Exception:
-                    last_size = None
-                if last_size is not None and last_size <= target_max_bytes:
-                    break
+            target_max_bytes = max(200_000, int(float(limit_mb or 1.0) * 1024 * 1024))
+
+            if mode == "ocr":
+                # OCR режим: максимум качества, не пытаемся ужать до лимита.
+                jpeg_bytes, w, h = prepare_jpeg(max_side=None, quality=95)
+                write_pdf_from_jpeg(jpeg_bytes, w, h)
+            else:
+                # compact: стараемся уложиться в limit_mb, но держим DPI 300 и не режем слишком сильно.
+                presets = [
+                    (3200, 92),
+                    (3000, 90),
+                    (2800, 88),
+                    (2600, 86),
+                    (2400, 84),
+                    (2200, 82),
+                    (2000, 80),
+                    (1800, 78),
+                ]
+                last_size = None
+                for (max_side, quality) in presets:
+                    jpeg_bytes, w, h = prepare_jpeg(max_side=max_side, quality=quality)
+                    write_pdf_from_jpeg(jpeg_bytes, w, h)
+                    try:
+                        last_size = os.path.getsize(temp_pdf_path)
+                    except Exception:
+                        last_size = None
+                    if last_size is not None and last_size <= target_max_bytes:
+                        break
 
             result_path = temp_pdf_path
 

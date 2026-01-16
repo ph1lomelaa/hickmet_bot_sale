@@ -802,7 +802,7 @@
             event?.stopPropagation();
 
             try {
-                const directUrl = `${API_URL}/api/care/passport-pdf/${bookingId}?ngrok-skip-browser-warning=1`;
+                const directUrl = `${API_URL}/api/care/passport-pdf/${bookingId}?mode=compact&limit_mb=1&ngrok-skip-browser-warning=1`;
 
                 // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую
                 if (window.Telegram?.WebApp) {
