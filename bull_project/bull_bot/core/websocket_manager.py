@@ -200,43 +200,43 @@ def format_admin_notification(
     # Информация о пакете
     if notification_type == "reschedule" and request_data:
         old_package = request_data.get('old_package_name', '-')
-        text += f"▫️ Старый пакет: {old_package}\n"
-        text += f"▫️ Новый пакет: {booking_data.get('package_name', '-')}\n"
+        text += f"Старый пакет: {old_package}\n"
+        text += f"Новый пакет: {booking_data.get('package_name', '-')}\n"
         sheet_row = booking_data.get('sheet_row_number', '-')
         if sheet_row is None:
             sheet_row = "-"
-        text += f"▫️ Новый лист: {booking_data.get('sheet_name', '-')} | Строка: {sheet_row}\n"
+        text += f"Новый лист: {booking_data.get('sheet_name', '-')} | Строка: {sheet_row}\n"
     else:
         sheet_row = booking_data.get('sheet_row_number', '-')
         if sheet_row is None:
             sheet_row = "-"
-        text += f"▫️ Пакет: {booking_data.get('package_name', '-')}\n"
-        text += f"▫️ Лист: {booking_data.get('sheet_name', '-')} | Строка: {sheet_row}\n"
+        text += f"Пакет: {booking_data.get('package_name', '-')}\n"
+        text += f"Лист: {booking_data.get('sheet_name', '-')} | Строка: {sheet_row}\n"
 
-    text += f"▫️ Телефон: {booking_data.get('client_phone', '-')}\n"
+    text += f"Телефон: {booking_data.get('client_phone', '-')}\n"
 
     # Размещение и финансы
     room_type = booking_data.get('room_type', '-')
     meal_type = booking_data.get('meal_type', '-')
-    text += f"▫️ Размещение: {room_type} | {meal_type}\n"
+    text += f"Размещение: {room_type} | {meal_type}\n"
 
     price = booking_data.get('price', '-')
     amount_paid = booking_data.get('amount_paid', '-')
-    text += f"▫️ Сумма: {price}\n"
-    text += f"▫️ Сумма оплаты: {amount_paid}\n"
+    text += f"Сумма: {price}\n"
+    text += f"Сумма оплаты: {amount_paid}\n"
 
     # Логистика
     region = booking_data.get('region', '-')
     departure_city = booking_data.get('departure_city', '-')
-    text += f"▫️ Регион: {region} | Вылет: {departure_city}\n"
+    text += f"Регион: {region} | Вылет: {departure_city}\n"
 
     visa_status = booking_data.get('visa_status', '-')
     avia = booking_data.get('avia', '-')
-    text += f"▫️ Виза: {visa_status} | Авиа: {avia}\n"
+    text += f"Виза: {visa_status} | Авиа: {avia}\n"
 
     # Менеджер
     manager_name = booking_data.get('manager_name_text', '-')
-    text += f"▫️ Менеджер: {manager_name}\n"
+    text += f"Менеджер: {manager_name}\n"
 
     # Блок ЗАЯВКА (только для cancel/reschedule)
     if request_data and notification_type in ["cancel", "reschedule"]:
@@ -245,7 +245,7 @@ def format_admin_notification(
 
         request_comment = request_data.get('comment', '')
         if request_comment:
-            text += f"▫️ Комментарий: {request_comment}\n"
+            text += f"Комментарий: {request_comment}\n"
 
         if notification_type == "reschedule":
             old_booking_ids = request_data.get('old_booking_ids') or []
@@ -255,14 +255,14 @@ def format_admin_notification(
                     old_booking_ids = [old_booking_id]
             if old_booking_ids:
                 if len(old_booking_ids) == 1:
-                    text += f"▫️ Старая бронь: #{old_booking_ids[0]}\n"
+                    text += f"Старая бронь: #{old_booking_ids[0]}\n"
                 else:
                     joined = ", ".join([f"#{x}" for x in old_booking_ids])
-                    text += f"▫️ Старые брони: {joined}\n"
+                    text += f"Старые брони: {joined}\n"
 
         request_date = request_data.get('request_date', '')
         if request_date:
-            text += f"▫️ Дата заявки: {request_date}\n"
+            text += f"Дата заявки: {request_date}\n"
 
     return text
 
