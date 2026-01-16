@@ -820,12 +820,10 @@
             <div class="tabs">
                 <button class="tab active" onclick="showTab('overview')">Общая статистика</button>
                 <button class="tab" onclick="showTab('managers')">Менеджеры</button>
-                <button class="tab" onclick="showTab('packages')">Поиск пакетов</button>
             </div>
         </div>
 
         <div class="quick-actions">
-            <button class="btn" onclick="openPilgrimSearch()">Найти паломника</button>
         </div>
 
         <!-- ОБЩАЯ СТАТИСТИКА -->
@@ -851,11 +849,10 @@
             </div>
 
             <div class="table-container">
-                <h3 style="margin: 20px; color: var(--accent-dark);">ТОП-10 Пакетов</h3>
+                <h3 style="margin: 20px; color: var(--accent-dark);">ТОП - Продаваемых Пакетов</h3>
                 <div id="top-packages-container" style="max-height: 400px; overflow-y: auto;">
                     <!-- Таблица пакетов -->
                 </div>
-                <button class="expand-btn" onclick="expandPackages()">Показать все пакеты</button>
             </div>
 
             <div class="table-container">

@@ -321,8 +321,17 @@
             transform: translateY(0);
         }
 
-        /* Кнопка скачивания паспорта (светлая, под стиль приложения) */
+        /* Кнопки скачивания паспорта */
+        .passport-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+
         .download-passport-compact {
+            flex: 1;
+            min-width: 140px;
             padding: 10px 16px;
             background: linear-gradient(135deg, #FFFFFF 0%, var(--bg-secondary) 100%);
             color: var(--accent-dark);
@@ -348,6 +357,38 @@
         }
 
         .download-passport-compact:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .download-passport-original {
+            flex: 1;
+            min-width: 140px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            border: 1px solid #4CAF50;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-soft);
+            white-space: nowrap;
+        }
+
+        .download-passport-original:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-medium);
+            background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+        }
+
+        .download-passport-original:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .download-passport-original:disabled {
             opacity: 0.55;
             cursor: not-allowed;
             transform: none;
@@ -717,13 +758,22 @@
                                 class="passport-image"
                                 onerror="this.style.display='none'"
                             >
-                            <button
-                                class="download-passport-compact"
-                                onclick="downloadPassportPDF(event, ${booking.id})"
-                                title="Скачать паспорт в PDF"
-                            >
-                                Скачать паспорт
-                            </button>
+                            <div class="passport-buttons">
+                                <button
+                                    class="download-passport-compact"
+                                    onclick="downloadPassportPDF(event, ${booking.id})"
+                                    title="Компактный PDF ≤1MB для архива"
+                                >
+                                    📄 Компактный PDF
+                                </button>
+                                <button
+                                    class="download-passport-original"
+                                    onclick="downloadPassportOriginal(event, ${booking.id})"
+                                    title="Оригинальный файл без сжатия для OCR"
+                                >
+                                    🔍 Оригинал для OCR
+                                </button>
+                            </div>
                         </div>
                     `;
                 }
@@ -871,6 +921,64 @@
                     }, 2000);
                 } else {
                     alert('Ошибка скачивания PDF: ' + error.message);
+                }
+            }
+        }
+
+        // Скачивание оригинального файла паспорта (для внешнего OCR)
+        async function downloadPassportOriginal(evt, bookingId) {
+            evt?.preventDefault();
+            evt?.stopPropagation();
+            try {
+                const button = evt?.target;
+                const originalText = button?.innerHTML;
+
+                // Показываем индикатор загрузки
+                if (button) {
+                    button.innerHTML = '⏳ Загрузка...';
+                    button.disabled = true;
+                }
+
+                console.log(`📥 Запрос оригинального файла паспорта для booking ${bookingId}...`);
+
+                const directUrl = `${API_BASE}/api/care/passport-original/${bookingId}?ngrok-skip-browser-warning=1`;
+
+                // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую.
+                if (window.Telegram?.WebApp) {
+                    window.Telegram.WebApp.openLink(directUrl);
+                    if (button) {
+                        button.innerHTML = '✅ Открыт';
+                        setTimeout(() => {
+                            button.innerHTML = originalText || '🔍 Оригинал для OCR';
+                            button.disabled = false;
+                        }, 2000);
+                    }
+                    return;
+                }
+
+                // Обычный браузер: открываем прямую ссылку
+                window.open(directUrl, '_blank', 'noopener,noreferrer');
+
+                // Восстанавливаем кнопку
+                if (button) {
+                    button.innerHTML = '✅ Открыто';
+                    setTimeout(() => {
+                        button.innerHTML = originalText || '🔍 Оригинал для OCR';
+                        button.disabled = false;
+                    }, 2000);
+                }
+
+            } catch (error) {
+                console.error('❌ Ошибка скачивания оригинала:', error);
+                const button = evt?.target;
+                if (button) {
+                    button.innerHTML = '❌ Ошибка';
+                    setTimeout(() => {
+                        button.innerHTML = '🔍 Оригинал для OCR';
+                        button.disabled = false;
+                    }, 2000);
+                } else {
+                    alert('Ошибка скачивания оригинала: ' + error.message);
                 }
             }
         }

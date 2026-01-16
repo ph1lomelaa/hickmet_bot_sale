@@ -321,18 +321,25 @@
             display: none;
         }
 
+        .passport-buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
         .download-passport-compact {
-            width: 100%;
+            flex: 1;
+            min-width: 140px;
             padding: 10px 12px;
             border: 1px solid var(--border-color);
             border-radius: 12px;
             background: linear-gradient(135deg, #FFFFFF 0%, var(--bg-secondary) 100%);
             color: var(--accent-dark);
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 700;
             cursor: pointer;
             transition: all 0.2s ease;
-            margin-bottom: 8px;
             box-shadow: var(--shadow-soft);
         }
 
@@ -348,6 +355,37 @@
         }
 
         .download-passport-compact:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .download-passport-original {
+            flex: 1;
+            min-width: 140px;
+            padding: 10px 12px;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            border: 1px solid #4CAF50;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .download-passport-original:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-medium);
+            background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+        }
+
+        .download-passport-original:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .download-passport-original:disabled {
             opacity: 0.55;
             cursor: not-allowed;
             transform: none;
@@ -529,13 +567,22 @@
                         </div>
                     </div>
 
-                    <button
-                        class="download-passport-compact"
-                        onclick="downloadPassportPDF(event, ${booking.id})"
-                        ${!booking.passport_image_path ? 'disabled title="Паспорт не загружен"' : ''}
-                    >
-                        Скачать паспорт
-                    </button>
+                    <div class="passport-buttons">
+                        <button
+                            class="download-passport-compact"
+                            onclick="downloadPassportPDF(event, ${booking.id})"
+                            ${!booking.passport_image_path ? 'disabled title="Паспорт не загружен"' : 'title="Компактный PDF ≤1MB для архива"'}
+                        >
+                            📄 Компактный PDF
+                        </button>
+                        <button
+                            class="download-passport-original"
+                            onclick="downloadPassportOriginal(event, ${booking.id})"
+                            ${!booking.passport_image_path ? 'disabled title="Паспорт не загружен"' : 'title="Оригинальный файл без сжатия для OCR"'}
+                        >
+                            🔍 Оригинал для OCR
+                        </button>
+                    </div>
 
                     <button class="details-btn" onclick="toggleDetails(${index})">
                         📋 Подробнее
@@ -633,6 +680,27 @@
             } catch (error) {
                 console.error('Download error:', error);
                 alert('Ошибка при скачивании паспорта');
+            }
+        }
+
+        async function downloadPassportOriginal(evt, bookingId) {
+            evt?.preventDefault();
+            evt?.stopPropagation();
+
+            try {
+                const directUrl = `${API_URL}/api/care/passport-original/${bookingId}?ngrok-skip-browser-warning=1`;
+
+                // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую
+                if (window.Telegram?.WebApp) {
+                    window.Telegram.WebApp.openLink(directUrl);
+                    return;
+                }
+
+                // Обычный браузер: открываем прямую ссылку
+                window.open(directUrl, '_blank', 'noopener,noreferrer');
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Ошибка при скачивании оригинала паспорта');
             }
         }
 
