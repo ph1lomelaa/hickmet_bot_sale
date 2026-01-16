@@ -11,7 +11,7 @@ def manager_kb():
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
-        [InlineKeyboardButton(text="История бронирования", callback_data="open_history_info")],
+        [InlineKeyboardButton(text="История бронирования", web_app=WebAppInfo(url=HISTORY_URL))],
         [InlineKeyboardButton(text="OPEN DATE", web_app=WebAppInfo(url=OPEN_DATE_URL))],
     ])
 
@@ -33,7 +33,6 @@ def admin_kb():
     from aiogram.types import WebAppInfo
     ADMIN_PANEL_URL = "https://ph1lomelaa.github.io/book/admin-panel.html"
     ADMIN_BOOKINGS_URL = "https://ph1lomelaa.github.io/book/admin-bookings.html"
-    ADMIN_REQUESTS_URL = "https://ph1lomelaa.github.io/book/admin-requests.html"
     CARE_SEARCH_URL = "https://ph1lomelaa.github.io/book/search-pilgrim.html"
 
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -43,7 +42,7 @@ def admin_kb():
         [InlineKeyboardButton(text="Найти паломника", web_app=WebAppInfo(url=CARE_SEARCH_URL))],
         # У админа убираем быстрый переход "Перенос/Отмена" из меню (оставляем только уведомления/заявки через отдельные каналы)
         [InlineKeyboardButton(text="Запросы 4U", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="🔔 Настройки уведомлений", callback_data="admin_notify_menu")],
+        [InlineKeyboardButton(text="Настройки уведомлений", callback_data="admin_notify_menu")],
     ])
 
 from aiogram.utils.keyboard import InlineKeyboardBuilder

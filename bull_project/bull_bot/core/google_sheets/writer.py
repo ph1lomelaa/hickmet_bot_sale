@@ -662,6 +662,47 @@ async def write_rescheduled_booking_red(sheet_id, sheet_name, package_name, gues
 
 # === OPEN DATE FUNCTIONS ===
 
+def _normalize_ws_title_for_compare(title: str) -> str:
+    # В Google Sheets иногда встречается кириллическая "С" вместо латинской "C" (выглядят одинаково).
+    # Нормализуем для устойчивого сравнения.
+    if not title:
+        return ""
+    return (
+        title.strip()
+        .lower()
+        .replace("с", "c")  # кириллическая 'с' -> латинская 'c'
+    )
+
+
+def _find_certificate_worksheet(ss):
+    """
+    Возвращает worksheet для Certificate 2025, учитывая частые опечатки/варианты (латинская vs кириллическая C).
+    """
+    aliases = [
+        "Certificate 2025",
+        "Сertificate 2025",  # кириллическая C
+        "Certificate2025",
+        "Сertificate2025",
+    ]
+
+    # 1) Сначала пробуем точные варианты
+    for name in aliases:
+        ws = get_worksheet_by_title(ss, name)
+        if ws:
+            return ws
+
+    # 2) Фолбек: сравнение по нормализованному названию среди всех листов
+    try:
+        wanted = {_normalize_ws_title_for_compare(a) for a in aliases}
+        for ws in ss.worksheets():
+            if _normalize_ws_title_for_compare(getattr(ws, "title", "")) in wanted:
+                return ws
+    except Exception:
+        pass
+
+    return None
+
+
 async def write_open_date_to_certificate(pilgrim_data_list, booking_data):
     """
     Записывает паломников в таблицу Certificate для OPEN DATE.
@@ -946,7 +987,6 @@ async def move_pilgrim_from_certificate_to_used(pilgrim_full_name, selected_date
         bool: True если успешно, False если ошибка
     """
     CERTIFICATE_TABLE_ID = "1IKLFtRq7tSTuU3dyVf8u0vhGswDBBh9rhj1R8B6WI8c"
-    CERT_SHEET_NAME = "Certificate 2025"
     USED_SHEET_NAME = "ИСПОЛЬЗОВАННЫЕ"
 
     try:
@@ -960,10 +1000,10 @@ async def move_pilgrim_from_certificate_to_used(pilgrim_full_name, selected_date
 
         ss = client.open_by_key(CERTIFICATE_TABLE_ID)
 
-        # Открываем Certificate лист
-        ws_cert = get_worksheet_by_title(ss, CERT_SHEET_NAME)
+        # Открываем Certificate лист (с вариациями названия)
+        ws_cert = _find_certificate_worksheet(ss)
         if not ws_cert:
-            print(f"❌ Лист '{CERT_SHEET_NAME}' не найден")
+            print("❌ Лист 'Certificate 2025' не найден (включая вариации названия)")
             return False
 
         # Ищем паломника в Certificate 2025

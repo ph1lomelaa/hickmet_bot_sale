@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Выбрать дату для паломника</title>
+    <title>OPEN DATE</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="config.js"></script>
     <style>
@@ -40,13 +40,13 @@
 
         .header {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
             padding-bottom: 20px;
             border-bottom: 2px solid var(--border-color);
         }
 
         .header h1 {
-            font-size: 24px;
+            font-size: 28px;
             font-weight: 700;
             color: var(--accent-dark);
             margin-bottom: 5px;
@@ -57,10 +57,18 @@
             color: var(--text-secondary);
         }
 
+        .controls {
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-soft);
+        }
+
         .search-box {
             display: flex;
             gap: 10px;
-            margin-bottom: 20px;
         }
 
         .search-input {
@@ -68,7 +76,7 @@
             padding: 14px 16px;
             border: 2px solid var(--border-color);
             border-radius: 14px;
-            background-color: var(--bg-card);
+            background-color: var(--bg-secondary);
             color: var(--text-primary);
             font-size: 16px;
             font-family: inherit;
@@ -91,6 +99,11 @@
             cursor: pointer;
             transition: all 0.3s ease;
             box-shadow: 0 4px 12px rgba(107, 93, 82, 0.2);
+        }
+
+        .search-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(107, 93, 82, 0.3);
         }
 
         .booking-card {
@@ -153,7 +166,7 @@
         .select-date-btn {
             width: 100%;
             padding: 12px 16px;
-            background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%);
             color: white;
             border: none;
             border-radius: 12px;
@@ -162,22 +175,18 @@
             cursor: pointer;
             transition: all 0.3s ease;
             margin-top: 12px;
+            box-shadow: 0 4px 12px rgba(107, 93, 82, 0.2);
         }
 
         .select-date-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(46, 125, 50, 0.4);
+            box-shadow: 0 6px 16px rgba(107, 93, 82, 0.3);
         }
 
         .empty-state {
             text-align: center;
             padding: 40px 20px;
             color: var(--text-secondary);
-        }
-
-        .empty-state-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
         }
 
         .loading {
@@ -189,19 +198,21 @@
 </head>
 <body>
     <div class="header">
-        <h1>📆 Паломник выбрал дату</h1>
+        <h1>Паломник выбрал дату</h1>
         <p>Выберите паломника из OPEN DATE</p>
     </div>
 
-    <div class="search-box">
-        <input
-            type="text"
-            class="search-input"
-            id="searchInput"
-            placeholder="Поиск по имени, телефону..."
-            onkeyup="handleSearch()"
-        >
-        <button class="search-btn" onclick="loadBookings()">🔍</button>
+    <div class="controls">
+        <div class="search-box">
+            <input
+                type="text"
+                class="search-input"
+                id="searchInput"
+                placeholder="Поиск по имени, телефону..."
+                onkeyup="handleSearch()"
+            >
+            <button class="search-btn" onclick="loadBookings()">Найти</button>
+        </div>
     </div>
 
     <div id="bookings-container">
@@ -248,7 +259,6 @@
                 console.error('Ошибка:', error);
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">❌</div>
                         <p>Ошибка загрузки данных</p>
                     </div>
                 `;
@@ -275,11 +285,11 @@
                     </div>
 
                     <div class="booking-info">
-                        ${booking.room_type ? `<span class="info-badge">🏨 ${booking.room_type}</span>` : ''}
-                        ${booking.meal_type ? `<span class="info-badge">🍽️ ${booking.meal_type}</span>` : ''}
-                        ${booking.price ? `<span class="info-badge">💰 ${booking.price}</span>` : ''}
+                        ${booking.room_type ? `<span class="info-badge">${booking.room_type}</span>` : ''}
+                        ${booking.meal_type ? `<span class="info-badge">${booking.meal_type}</span>` : ''}
+                        ${booking.price ? `<span class="info-badge">${booking.price}</span>` : ''}
                         ${booking.client_phone ? `<span class="info-badge">📞 ${booking.client_phone}</span>` : ''}
-                        <span class="info-badge">📅 ${formatDate(booking.created_at)}</span>
+                        <span class="info-badge">${formatDate(booking.created_at)}</span>
                     </div>
 
                     ${booking.pilgrim_data && booking.pilgrim_data.length > 1 ? `
@@ -294,7 +304,7 @@
                     ${booking.comment ? `<div style="margin-top: 8px; font-size: 14px; color: var(--text-secondary);">💬 ${booking.comment}</div>` : ''}
 
                     <button class="select-date-btn" onclick="selectDateFor(${booking.id})">
-                        📆 ВЫБРАТЬ ДАТУ
+                        ВЫБРАТЬ ДАТУ
                     </button>
                 </div>
             `).join('');

@@ -1011,8 +1011,8 @@
 
                 ${!cancelled ? `
                 <div class="booking-actions">
-                    <button class="action-btn" onclick="console.log('✏️ ИЗМЕНИТЬ нажата'); startEditData(${booking.id})">✏️ Изменить</button>
-                    <button class="action-btn" onclick="console.log('📄 ЗАГРУЗИТЬ ПАСПОРТ нажата'); startUploadPassport(${booking.id})">📄 Загрузить паспорт</button>
+                    <button class="action-btn" onclick="console.log('ИЗМЕНИТЬ нажата'); startEditData(${booking.id})">Изменить</button>
+                    <button class="action-btn" onclick="console.log('📄 ЗАГРУЗИТЬ ПАСПОРТ нажата'); startUploadPassport(${booking.id})">Загрузить паспорт</button>
                     <button class="action-btn" onclick="console.log('🟡 ПЕРЕНЕСТИ (карточка) нажата, ID=${booking.id}'); startReschedule(${booking.id})">Перенести</button>
                     <button class="action-btn danger" onclick="console.log('🔴 ОТМЕНИТЬ (карточка) нажата, ID=${booking.id}'); confirmCancel(${booking.id})">Отменить</button>
                 </div>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>✍️ Заполнить OPEN DATE</title>
+    <title>OPEN DATE</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="config.js"></script>
     <style>
@@ -38,23 +38,41 @@
             min-height: 100vh;
         }
 
-        .header {
+        .app-header {
             text-align: center;
             margin-bottom: 30px;
             padding-bottom: 20px;
             border-bottom: 2px solid var(--border-color);
         }
 
-        .header h1 {
-            font-size: 24px;
+        .app-header h1 {
+            font-size: 28px;
             font-weight: 700;
             color: var(--accent-dark);
             margin-bottom: 5px;
+            letter-spacing: -0.5px;
         }
 
-        .header p {
+        .app-header p {
             font-size: 14px;
             color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .smart-box {
+            background: linear-gradient(135deg, #FFFFFF 0%, var(--bg-secondary) 100%);
+            padding: 20px;
+            border-radius: 18px;
+            border: 2px solid var(--border-color);
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-medium);
+        }
+
+        .smart-box h3 {
+            color: var(--accent-dark);
+            margin-bottom: 16px;
+            font-size: 18px;
+            font-weight: 700;
         }
 
         label {
@@ -184,79 +202,72 @@
             cursor: not-allowed;
         }
 
-        .info-box {
-            background: linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%);
-            border: 2px solid #81C784;
-            border-radius: 14px;
-            padding: 16px;
-            margin-bottom: 24px;
-            text-align: center;
-        }
-
-        .info-box p {
-            font-size: 14px;
-            color: #2E7D32;
-            margin: 0;
-        }
-
         /* selector removed: count is entered manually */
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Заполнить OPEN DATE</h1>
+    <div class="app-header">
+        <h1>OPEN DATE</h1>
         <p>Бронирование без конкретной даты</p>
     </div>
 
-	    <div class="info-box">
-	        <p><strong>Количество паломников</strong></p>
-	    </div>
+    <div class="smart-box">
+        <h3>Данные заявки</h3>
+        <label for="pilgrim_count_input">Количество </label>
+        <input type="number" id="pilgrim_count_input" min="1" max="30" value="1" required>
 
-	    <label for="pilgrim_count_input">Количество *</label>
-	    <input type="number" id="pilgrim_count_input" min="1" max="30" value="1" required>
+        <div class="row">
+            <div class="col">
+                <label for="room_type">Размещение</label>
+                <select id="room_type">
+                    <option value="">Не указано</option>
+                    <option value="QUADRO">QUADRO</option>
+                    <option value="TRIPLE">TRIPLE</option>
+                    <option value="DOUBLE">DOUBLE</option>
+                    <option value="SINGLE">SINGLE</option>
+                </select>
+            </div>
+            <div class="col">
+                <label for="meal_type">Питание</label>
+                <select id="meal_type">
+                    <option value="">Не указано</option>
+                    <option value="BB">BB</option>
+                    <option value="HB">HB</option>
+                    <option value="FB">FB</option>
+                    <option value="AI">AI</option>
+                </select>
+            </div>
+        </div>
 
-	    <div id="pilgrimsContainer"></div>
+        <div class="row">
+            <div class="col">
+                <label for="price">Цена</label>
+                <input type="text" id="price">
+            </div>
+            <div class="col">
+                <label for="client_phone">Телефон клиента </label>
+                <input type="tel" id="client_phone" required>
+            </div>
+        </div>
 
-    <label for="room_type">Размещение</label>
-    <select id="room_type">
-        <option value="не указано">Не указано</option>
-        <option value="QUADRO">QUADRO (4 местный)</option>
-        <option value="TRIPLE">TRIPLE (3 местный)</option>
-        <option value="DOUBLE">DOUBLE (2 местный)</option>
-        <option value="SINGLE">SINGLE (1 местный)</option>
-    </select>
+        <label for="departure_city">Город вылета</label>
+        <input type="text" id="departure_city">
 
-    <label for="meal_type">Питание</label>
-    <select id="meal_type">
-        <option value="не указано">Не указано</option>
-        <option value="BB">BB (Завтрак)</option>
-        <option value="HB">HB (Завтрак + Ужин)</option>
-        <option value="FB">FB (Полный пансион)</option>
-        <option value="AI">AI (Все включено)</option>
-    </select>
+        <label for="region">Регион</label>
+        <input type="text" id="region">
 
-	    <label for="price">Цена</label>
-	    <input type="text" id="price">
+        <label for="comment">Комментарий</label>
+        <textarea id="comment" rows="3"></textarea>
+    </div>
 
-	    <label for="departure_city">Город вылета</label>
-	    <input type="text" id="departure_city">
-
-	    <label for="region">Регион</label>
-	    <input type="text" id="region">
-
-	    <label for="client_phone">Телефон клиента *</label>
-	    <input type="tel" id="client_phone" required>
-
-	    <label for="comment">Комментарий</label>
-	    <textarea id="comment" rows="3"></textarea>
+    <div id="pilgrimsContainer"></div>
 
     <button class="submit-btn" id="submitBtn" onclick="submitOpenDate()">
-        📋 Записать в OPEN DATE
+        Записать в OPEN DATE
     </button>
 
     <script>
-        const API_URL = window.BULL_API_URL || 'https://marxist-noell-uslima2005-12a246c3.koyeb.app';
-        console.log('✅ API_URL установлен:', API_URL);
+        const API_URL = window.BULL_API_URL;
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
@@ -364,8 +375,8 @@
                 // Собираем остальные данные
                 const data = {
                     pilgrims: pilgrims,
-                    room_type: document.getElementById('room_type').value,
-                    meal_type: document.getElementById('meal_type').value,
+                    room_type: document.getElementById('room_type').value || null,
+                    meal_type: document.getElementById('meal_type').value || null,
                     price: document.getElementById('price').value.trim(),
                     departure_city: document.getElementById('departure_city').value.trim(),
                     region: document.getElementById('region').value.trim(),

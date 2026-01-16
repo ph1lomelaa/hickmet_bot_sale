@@ -5,7 +5,15 @@ import time
 import aiohttp
 from aiogram import Router, F, types
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    WebAppInfo,
+    BotCommand,
+    BotCommandScopeChat,
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from pytesseract.pytesseract import LOGGER
@@ -90,6 +98,17 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     user = await get_user_by_id(message.from_user.id)
     if user and user.role != "guest":
+        if user.role == "admin":
+            # Команды в "гамбургер" (меню команд слева от поля ввода) для админов.
+            # Делается per-chat, чтобы другие роли их не видели.
+            with suppress(Exception):
+                await message.bot.set_my_commands(
+                    commands=[
+                        BotCommand(command="cancel", description="Заявки на отмену (ожидают подтверждения)"),
+                        BotCommand(command="reschedule", description="Заявки на перенос (ожидают подтверждения)"),
+                    ],
+                    scope=BotCommandScopeChat(chat_id=message.chat.id),
+                )
         await message.answer(f"🕋 <b>Ассаламу алейкум, {user.full_name}!</b>",
                              reply_markup=get_menu_by_role(user.role), parse_mode="HTML")
     else:
@@ -122,7 +141,6 @@ async def register_name(message: Message, state: FSMContext):
     await message.answer(f"🕋 Ассаламу алейкум, {name}!", reply_markup=get_menu_by_role(role))
     await state.clear()
 
-# ==================== 2. СБОР ПАСПОРТОВ ====================
 
 @router.callback_query(F.data == "create_booking")
 async def start_booking(call: CallbackQuery, state: FSMContext):
@@ -144,7 +162,6 @@ async def _menu_reminder_after_create_booking(bot, user_id: int):
             parse_mode="HTML"
         )
     except Exception:
-        # best-effort reminder; ignore any delivery issues
         return
 
 @router.message(BookingFlow.waiting_count)
@@ -208,40 +225,10 @@ async def cancel_booking(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "open_history_info")
 async def open_history_info(call: CallbackQuery, state: FSMContext):
     await state.clear()
-    from aiogram.types import WebAppInfo
-
-    HISTORY_URL = "https://ph1lomelaa.github.io/book/history_v2.html"
-
-    text = (
-        "1) После нажатия «Отменить» создаётся заявка администратору. Администратор подтверждает или отклоняет отмену. "
-        "Результат (подтверждение/отклонение) придёт вам в чат.\n\n"
-        "2) После нажатия «Перенести» необходимо указать комментарий. При необходимости вы можете выбрать дополнительных паломников "
-        "(семья/группа), чтобы перенести их вместе. Далее заявка отправляется администратору на подтверждение или отклонение. "
-        "Результат придёт вам в чат.\n\n"
-        "3) Если у паломника не указан паспорт, вы можете загрузить паспорт через «Историю бронирования».\n\n"
-        "4) Если у паломника не указан номер телефона, нажмите «Изменить» и добавьте номер телефона. "
-        "Сейчас номер телефона является обязательным для оформления заявки."
-    )
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Открыть историю", web_app=WebAppInfo(url=HISTORY_URL))],
-    ])
-    msg = await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
-
-    # После открытия истории менеджер обычно возвращается в чат позже.
-    # Делаем авто-очистку этого сообщения и возвращаем меню (best-effort).
-    asyncio.create_task(_auto_cleanup_history_info(call.bot, call.from_user.id, msg.message_id))
+    role = await get_user_role(call.from_user.id)
+    await call.message.answer("Выберите действие:", reply_markup=get_menu_by_role(role))
     with suppress(Exception):
         await call.answer()
-
-
-async def _auto_cleanup_history_info(bot, user_id: int, message_id: int):
-    await asyncio.sleep(20)
-    try:
-        with suppress(Exception):
-            await bot.delete_message(user_id, message_id)
-    except Exception:
-        return
 
 
 

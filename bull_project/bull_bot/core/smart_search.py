@@ -7,20 +7,12 @@ from bull_project.bull_bot.core.google_sheets.client import (
     get_accessible_tables, get_sheet_names, get_packages_from_sheet
 )
 
-# -----------------------
-# КЭШИ (умные, точечные)
-# -----------------------
-
-# 1) Кэш листов по таблице (редко меняется)
 SHEETS_CACHE: Dict[str, Tuple[float, List[str]]] = {}
-SHEETS_TTL = 60 * 30  # 30 минут
-
-# 2) Кэш результатов по дате (почти realtime)
+SHEETS_TTL = 60 * 30  
 DATE_CACHE: Dict[str, Tuple[float, List[dict]]] = {}
-DATE_TTL = 60  # 60 секунд (можешь поставить 30..120)
+DATE_TTL = 60  
 
 def _norm_ddmm(s: str) -> str:
-    """Нормализуем ввод: '15/1' -> '15.01', ' 15.01 ' -> '15.01' """
     s = (s or "").strip().replace("/", ".").replace(",", ".")
     parts = s.split(".")
     if len(parts) < 2:
@@ -53,13 +45,7 @@ async def _get_sheet_names_cached(table_id: str, force: bool = False) -> List[st
     return names or []
 
 async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
-    """
-    Ищет пакеты ТОЛЬКО по введенной дате DD.MM.
-    Возвращает в твоём формате: {found: bool, data: [{d,n,s,t}, ...], error?: str}
-    """
     date_part = _norm_ddmm(date_part)
-
-    # Кэш по дате (короткий)
     ts, cached = DATE_CACHE.get(date_part, (0, []))
     if (not force) and cached and (time.time() - ts < DATE_TTL):
         return {"found": True, "data": cached}
@@ -141,11 +127,7 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
         if not temp_collected:
             return {"found": False, "error": "Рейсы не найдены."}
 
-        # 🔍 ОПРЕДЕЛЯЕМ ДУБЛИКАТЫ ПО ДАТЕ: Проверяем есть ли пакеты с одной датой на разных листах
-        # Дата обычно в начале названия пакета (например "15.01 Niyet 4*")
         from collections import defaultdict
-
-        # Группируем пакеты по дате (первые символы до пробела)
         date_occurrences = defaultdict(list)
         for item in temp_collected:
             pkg_name = item["n"]
@@ -154,7 +136,6 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
             key = (item["s"], item["t"])  # (sheet_name, table_id)
             date_occurrences[date_prefix].append((pkg_name, key))
 
-        # Находим даты которые встречаются на разных листах/таблицах
         packages_with_duplicates = set()
         for date_prefix, items in date_occurrences.items():
             # Получаем уникальные комбинации (sheet_name, table_id) для этой даты
@@ -174,9 +155,6 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
             sheet_name = item["s"]
 
             if pkg_name in packages_with_duplicates:
-                # Это пакет с датой которая встречается на разных листах
-                # Показываем И название таблицы И название листа
-                # Вытаскиваем суффикс листа (убираем дату)
                 sheet_suffix = (sheet_name or "").replace(date_part, "").strip(" -.|")
                 if not sheet_suffix:
                     sheet_suffix = sheet_name

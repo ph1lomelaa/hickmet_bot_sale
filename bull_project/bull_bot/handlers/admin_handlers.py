@@ -11,7 +11,8 @@ from bull_project.bull_bot.database.requests import (
     get_active_4u_requests, get_4u_request_by_id, update_4u_status,
     get_approval_request, update_approval_status, get_booking_by_id,
     mark_booking_cancelled, update_booking_fields, get_user_role, get_manager_packages, get_bookings_in_package,
-    get_admin_settings, set_admin_settings, update_booking_row
+    get_admin_settings, set_admin_settings, update_booking_row,
+    get_pending_requests,
 )
 from bull_project.bull_bot.config.keyboards import admin_kb
 from bull_project.bull_bot.config.constants import bot
@@ -29,6 +30,135 @@ ADMIN_PANEL_URL = "https://ph1lomelaa.github.io/book/admin-panel.html"
 ADMIN_BOOKINGS_URL = "https://ph1lomelaa.github.io/book/admin-bookings.html"
 ADMIN_CREATE_URL = "https://ph1lomelaa.github.io/book/admin-create-booking.html"
 ADMIN_REQUESTS_URL = "https://ph1lomelaa.github.io/book/admin-requests.html"
+
+# === ADMIN COMMANDS: PENDING CANCEL/RESCHEDULE REQUESTS ===
+
+def _fmt_req_short(req, booking) -> str:
+    req_type = "Отмена" if req.request_type == "cancel" else ("Перенос" if req.request_type == "reschedule" else req.request_type)
+    name = "-"
+    if booking:
+        name = f"{(booking.guest_last_name or '').strip()} {(booking.guest_first_name or '').strip()}".strip() or "-"
+    return f"{req_type} #{req.id} · {name}"
+
+
+async def _send_requests_list(message: Message, request_type: str):
+    role = await get_user_role(message.from_user.id)
+    if role != "admin":
+        await message.answer("❌ Команда доступна только администраторам.")
+        return
+
+    pending = await get_pending_requests()
+    pending = [r for r in pending if r.status == "pending" and r.request_type == request_type]
+
+    if not pending:
+        await message.answer("✅ Активных заявок нет.", reply_markup=admin_kb())
+        return
+
+    builder = InlineKeyboardBuilder()
+    for req in pending[:50]:
+        booking = await get_booking_by_id(req.booking_id)
+        builder.button(text=_fmt_req_short(req, booking), callback_data=f"admin_req_view:{req.id}:{request_type}")
+    builder.button(text="Открыть запросы (WebApp)", web_app=WebAppInfo(url=ADMIN_REQUESTS_URL))
+    builder.adjust(1)
+
+    title = "Заявки на отмену" if request_type == "cancel" else "Заявки на перенос"
+    await message.answer(f"📋 <b>{title}</b>\nВыберите заявку:", reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.message(Command("cancel"))
+async def admin_cmd_cancel(message: Message):
+    await _send_requests_list(message, "cancel")
+
+
+@router.message(Command("reschedule"))
+async def admin_cmd_reschedule(message: Message):
+    await _send_requests_list(message, "reschedule")
+
+
+@router.callback_query(F.data.startswith("admin_req_view:"))
+async def admin_req_view(call: CallbackQuery):
+    role = await get_user_role(call.from_user.id)
+    if role != "admin":
+        await call.answer("❌ Только администраторы", show_alert=True)
+        return
+
+    parts = call.data.split(":")
+    req_id = int(parts[1])
+    req_type = parts[2] if len(parts) > 2 else ""
+
+    req = await get_approval_request(req_id)
+    if not req:
+        await call.answer("Заявка не найдена", show_alert=True)
+        return
+
+    booking = await get_booking_by_id(req.booking_id)
+
+    full_name = "-"
+    pkg = "-"
+    sheet = "-"
+    phone = "-"
+    manager = "-"
+    if booking:
+        full_name = f"{booking.guest_last_name or '-'} {booking.guest_first_name or '-'}".strip()
+        pkg = booking.package_name or "-"
+        sheet = booking.sheet_name or "-"
+        phone = booking.client_phone or "-"
+        manager = booking.manager_name_text or "-"
+
+    comment = (req.comment or "-").strip() or "-"
+    created_at = req.created_at.strftime("%d.%m.%Y %H:%M") if getattr(req, "created_at", None) else "-"
+
+    title = "🔵 ЗАПРОС НА ОТМЕНУ" if req.request_type == "cancel" else "🔵 ЗАПРОС НА ПЕРЕНОС"
+    text = (
+        f"{title}\n\n"
+        f"ФИО: {full_name}\n\n"
+        f"Пакет: {pkg}\n"
+        f"Лист: {sheet}\n"
+        f"Телефон: {phone}\n"
+        f"Менеджер: {manager}\n\n"
+        f"━━━ ЗАЯВКА ━━━\n"
+        f"Комментарий: {comment}\n"
+        f"Дата заявки: {created_at}"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Открыть запросы (WebApp)", web_app=WebAppInfo(url=ADMIN_REQUESTS_URL))],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=f"admin_req_back:{req_type}")],
+    ])
+
+    with suppress(TelegramBadRequest):
+        await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("admin_req_back:"))
+async def admin_req_back(call: CallbackQuery):
+    role = await get_user_role(call.from_user.id)
+    if role != "admin":
+        await call.answer("❌ Только администраторы", show_alert=True)
+        return
+
+    req_type = call.data.split(":")[1] if ":" in call.data else "cancel"
+    pending = await get_pending_requests()
+    pending = [r for r in pending if r.status == "pending" and r.request_type == req_type]
+
+    if not pending:
+        with suppress(TelegramBadRequest):
+            await call.message.edit_text("✅ Активных заявок нет.", reply_markup=admin_kb(), parse_mode="HTML")
+        await call.answer()
+        return
+
+    builder = InlineKeyboardBuilder()
+    for req in pending[:50]:
+        booking = await get_booking_by_id(req.booking_id)
+        builder.button(text=_fmt_req_short(req, booking), callback_data=f"admin_req_view:{req.id}:{req_type}")
+    builder.button(text="Открыть запросы (WebApp)", web_app=WebAppInfo(url=ADMIN_REQUESTS_URL))
+    builder.adjust(1)
+
+    title = "Заявки на отмену" if req_type == "cancel" else "Заявки на перенос"
+    with suppress(TelegramBadRequest):
+        await call.message.edit_text(f"📋 <b>{title}</b>\nВыберите заявку:", reply_markup=builder.as_markup(), parse_mode="HTML")
+    await call.answer()
 
 # === 1. СПИСОК ЗАЯВОК ===
 @router.callback_query(F.data == "admin_stats")
@@ -63,20 +193,20 @@ async def view_request(call: CallbackQuery):
         return
 
     text = (
-        f"📝 <b>ЗАЯВКА #{req.id}</b>\n"
-        f"👤 <b>Менеджер:</b> {req.manager_name}\n"
-        f"📅 <b>Даты:</b> {req.dates}\n"
-        f"👥 <b>Людей:</b> {req.pilgrim_count}\n"
-        f"🛏 <b>Номер:</b> {req.room_type}\n"
-        f"📊 <b>Статус:</b> {req.status}\n"
+        f"<b>ЗАЯВКА #{req.id}</b>\n"
+        f"<b>Менеджер:</b> {req.manager_name}\n"
+        f"<b>Даты:</b> {req.dates}\n"
+        f"<b>Людей:</b> {req.pilgrim_count}\n"
+        f"<b>Номер:</b> {req.room_type}\n"
+        f"<b>Статус:</b> {req.status}\n"
     )
 
     kb = InlineKeyboardBuilder()
     if req.status == 'pending':
         # Кнопки в 2 колонки
-        kb.button(text="🔍 Проверить места", callback_data=f"check_4u:{req.id}")
-        kb.button(text="🚀 Создать лист", callback_data=f"approve_start:{req.id}")
-        kb.button(text="❌ Отклонить", callback_data=f"reject_4u:{req.id}")
+        kb.button(text="Проверить места", callback_data=f"check_4u:{req.id}")
+        kb.button(text="Создать лист", callback_data=f"approve_start:{req.id}")
+        kb.button(text="Отклонить", callback_data=f"reject_4u:{req.id}")
         kb.adjust(2) # Красиво упаковываем
 
     kb.row(InlineKeyboardButton(text="🔙 К списку", callback_data="admin_stats"))
@@ -102,7 +232,7 @@ async def check_availability(call: CallbackQuery):
         for r in results:
             text += f"🔹 {r['package']}\n📄 {r['sheet']}\n🧹 Удалить: {r['rows_to_clear']}\n---\n"
 
-        kb.button(text="🚀 Создать лист", callback_data=f"approve_start:{req_id}")
+        kb.button(text="Создать лист", callback_data=f"approve_start:{req_id}")
 
     kb.row(InlineKeyboardButton(text="🔙 Назад", callback_data=f"view_4u:{req_id}"))
 

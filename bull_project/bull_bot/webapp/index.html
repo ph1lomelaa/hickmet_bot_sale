@@ -670,7 +670,7 @@
     <h1>Бронирование Умры</h1>
 </div>
 <div id="edit_notice" class="edit-notice">
-    ✏️ Режим редактирования: пакет и дата зафиксированы, можно менять только данные паломника.
+    Режим редактирования: пакет и дата зафиксированы, можно менять только данные паломника.
 </div>
 
 <div id="step_0" style="display: none;">
@@ -707,12 +707,6 @@
                 <button class="submit-btn" id="start_processing_btn" type="button" style="margin-top: 14px;" disabled>
                     Начать обработку
                 </button>
-                <div class="help-text">
-                    После загрузки паспортов нажмите «Начать обработку».<br>
-                    Если среди паломников есть <b>INF</b> или <b>CHD</b> — загрузите их паспорта вместе со всеми и отметьте под именем <b>INF</b>/<b>CHD</b> для корректной записи.<br>
-                    Если у части паломников нет паспортов — их имя/фамилию вы заполните вручную (количество менять не нужно).<br>
-                    Если имя/фамилия распознаны неверно — их можно исправить в форме.
-                </div>
             </div>
         </div>
     </div>
@@ -740,7 +734,7 @@
     <input type="hidden" id="sheet_name_hidden">
     <input type="hidden" id="table_id_hidden">
 
-    <label><span class="icon">🛫</span>Город вылета:</label>
+    <label><span class="icon"></span>Город вылета:</label>
     <div class="city-buttons">
         <input type="radio" name="departure_city" id="c_ala" value="Almaty" checked>
         <label for="c_ala">Almaty</label>
@@ -760,8 +754,6 @@
             <label>VISA действующая:</label>
             <select id="visa_status">
                 <option value="-">NO VISA</option>
-                <option value="TOUR VISA">TOUR VISA</option>
-                <option value="UMRAH VISA">UMRAH VISA</option>
             </select>
         </div>
     </div>
@@ -791,11 +783,11 @@
 
     <div class="row">
         <div class="col">
-            <label>Сумма пакета ($):</label>
+            <label>Сумма пакета:</label>
             <input type="tel" id="price" placeholder="">
         </div>
         <div class="col">
-            <label>Оплачено ($):</label>
+            <label>Оплачено:</label>
             <input type="tel" id="amount_paid" value="">
         </div>
     </div>
@@ -858,7 +850,7 @@
     <textarea id="comment" rows="3" placeholder="Дополнительная информация..."></textarea>
 
     <button class="submit-btn" onclick="goToStep2()">
-        <span class="icon">➡️</span> ДАЛЕЕ К РАЗМЕЩЕНИЮ
+        <span class="icon"></span> ДАЛЕЕ К РАЗМЕЩЕНИЮ
     </button>
 </div>
 
@@ -936,29 +928,29 @@
         'Islam',
         'Nursultan',
         'Qymbat',
-        'BAGDAT',
-        'SHYNGYS',
-        'SAGYNDYK',
-        'ARSEN',
-        'KULYAN',
-        'MARZUHA',
-        'AIYM',
-        'AYAZHAN',
+        'Bagdat',
+        'Shyngys',
+        'Sagyndyk',
+        'Arsen',
+        'Kulyan',
+        'Marzuha',
+        'Aiym',
+        'Ayazhan',
         'Omirkhan',
         'Olzhas',
         'Zarina',
         'Symbat',
-        'AKZHOL',
-        'bekbergen',
-        'AKTOLKYN',
+        'Akzhol',
+        'Bekbergen',
+        'Aktolkyn',
         'Arsentai',
         'Madi Turkestan',
-        'ADILET',
+        'Adilet',
         'Zhandos',
         'Bakhyt',
         'Sardar',
         'Yerkezhan',
-        'MURAT'
+        'Murat'
     ];
 
     const managerSelect = document.getElementById('manager_select');
@@ -1596,7 +1588,7 @@
                 <div id="passport_${idx}" class="passport-data">
                     <div class="passport-field"><strong>Фамилия:</strong> <span class="passport-last-name">${p.last_name}</span></div>
                     <div class="passport-field"><strong>Имя:</strong> <span class="passport-first-name">${p.first_name}</span></div>
-                    <div class="passport-field"><strong>Пол:</strong> <span>${p.gender === 'M' ? '👨 Мужской' : '👩 Женский'}</span></div>
+                    <div class="passport-field"><strong>Пол:</strong> <span>${p.gender === 'M' ? 'Мужской' : 'Женский'}</span></div>
                     <div class="passport-field"><strong>Дата рождения:</strong> <span>${p.date_of_birth}</span></div>
                     <div class="passport-field"><strong>Паспорт:</strong> <span>${p.passport_num}</span></div>
                     <div class="passport-field"><strong>Срок действия:</strong> <span>${p.passport_expiry}</span></div>
@@ -1828,10 +1820,7 @@
         }
     }
 
-    // Поле "Менеджер" теперь заполняется вручную
-    // if (tg.initDataUnsafe?.user) {
-    //     document.getElementById('manager_name_text').value = tg.initDataUnsafe.user.first_name;
-    // }
+  
 
     function goToStep2() {
         const pkg = document.getElementById('pkg_name').value;
@@ -1914,7 +1903,6 @@
     }
 
     async function finalSubmit() {
-        // В edit-режиме не изменяем размещение
         const method = currentMode === 'edit'
             ? 'auto'
             : document.querySelector('input[name="place_method"]:checked').value;
