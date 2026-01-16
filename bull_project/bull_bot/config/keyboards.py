@@ -6,8 +6,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def manager_kb():
     """Меню для Менеджера (Продажи)"""
     from aiogram.types import WebAppInfo
-    HISTORY_URL = "https://ph1lomelaa.github.io/book/history_v2.html"
-    OPEN_DATE_URL = "https://ph1lomelaa.github.io/book/open_date.html"
+    # Добавляем версию в query, чтобы Telegram не открывал "закэшированный" старый URL из прошлых сообщений.
+    HISTORY_URL = "https://ph1lomelaa.github.io/book/history_v2.html?v=2"
+    OPEN_DATE_URL = "https://ph1lomelaa.github.io/book/open_date.html?v=2"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
