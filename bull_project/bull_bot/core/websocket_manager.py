@@ -320,40 +320,21 @@ async def notify_admins_about_request(
             request_data=request_data
         )
 
-        # Кнопки для подтверждения/отклонения (callback_data должны совпадать с handlers/admin_handlers.py)
-        button_text_confirm = "✅ Подтвердить отмену" if request_type == "cancel" else "✅ Подтвердить перенос"
-        button_text_reject = "❌ Отклонить"
-
-        if request_type == "cancel":
-            cb_ok = f"admin_cancel_ok:{request_id}"
-            cb_reject = f"admin_cancel_reject:{request_id}"
-        elif request_type == "reschedule":
-            # Исторически в боте используются admin_resched_ok/admin_resched_reject
-            cb_ok = f"admin_resched_ok:{request_id}"
-            cb_reject = f"admin_resched_reject:{request_id}"
-        else:
-            cb_ok = f"admin_{request_type}_ok:{request_id}"
-            cb_reject = f"admin_{request_type}_reject:{request_id}"
-
-        inline_keyboard = [[
-            {"text": button_text_confirm, "callback_data": cb_ok},
-            {"text": button_text_reject, "callback_data": cb_reject},
-        ]]
-
-        reply_markup = {"inline_keyboard": inline_keyboard}
+        # ВАЖНО:
+        # callback_data кнопки требуют запущенного Telegram-bot процесса (polling/webhook).
+        # На проде API часто запускается с SKIP_BOT, поэтому callback-и "не нажимаются".
+        # Решение: отправляем WebApp/URL-кнопку в админ-панель "Запросы", где одобрение идет через API.
+        ADMIN_REQUESTS_URL = "https://ph1lomelaa.github.io/book/admin-requests.html"
+        button_text_open = "Открыть запросы"
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": button_text_open, "url": ADMIN_REQUESTS_URL}
+            ]]
+        }
 
         # Отправляем уведомления админам
         for admin_id in admin_ids:
             try:
-                print(f"\n   Обработка админа {admin_id}...")
-
-                # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
-                if admin_id != 8413412150:
-                    print(f"   ⏭️  Пропущен (не тестовый админ)")
-                    continue
-
-                print(f"   ✅ Тестовый админ - продолжаем")
-
                 settings = await get_admin_settings(admin_id)
                 print(f"   📊 Настройки: new={settings.notify_new}, cancel={settings.notify_cancel}, reschedule={settings.notify_reschedule}")
 
@@ -411,14 +392,9 @@ async def notify_admins_about_new_booking(booking_data: dict):
             request_data=None
         )
 
-        # Уведомления о новых бронях без кнопок (информационные)
-        # Отправляем уведомления админам
+
         for admin_id in admin_ids:
             try:
-                # 🔧 ВРЕМЕННО: отправляем только одному админу для тестирования
-                if admin_id != 8413412150:
-                    continue
-
                 settings = await get_admin_settings(admin_id)
 
                 # Проверяем настройки уведомлений (используем notify_new)
