@@ -2023,23 +2023,74 @@ async def get_passport_pdf(
         if mode not in {"compact", "ocr"}:
             mode = "compact"
 
-        # Если уже PDF - отдаем как есть (не перекодируем, чтобы не портить)
+        # Если уже PDF
         if passport_path.lower().endswith('.pdf'):
-            return FileResponse(
-                passport_path,
-                media_type='application/pdf',
-                filename=pdf_filename,
-                headers={
-                    'Content-Disposition': f'attachment; filename="{pdf_filename}"'
-                }
-            )
+            # Для OCR режима отдаем оригинал (он уже в хорошем качестве)
+            if mode == "ocr":
+                return FileResponse(
+                    passport_path,
+                    media_type='application/pdf',
+                    filename=pdf_filename,
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{pdf_filename}"'
+                    }
+                )
 
-        # Если изображение - конвертируем в PDF
+            # Для compact режима: конвертируем PDF → изображение → компактный PDF
+            # Проверяем размер оригинала
+            original_size = os.path.getsize(passport_path)
+            target_max_bytes = max(200_000, int(float(limit_mb or 1.0) * 1024 * 1024))
+
+            # Если оригинал уже меньше лимита - отдаем как есть
+            if original_size <= target_max_bytes:
+                print(f"✅ PDF уже компактный ({original_size / 1024:.1f}KB ≤ {target_max_bytes / 1024:.1f}KB)")
+                return FileResponse(
+                    passport_path,
+                    media_type='application/pdf',
+                    filename=pdf_filename,
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{pdf_filename}"'
+                    }
+                )
+
+            # Нужно сжать PDF: конвертируем в изображение
+            print(f"🔄 PDF слишком большой ({original_size / 1024:.1f}KB > {target_max_bytes / 1024:.1f}KB), конвертируем...")
+            try:
+                from pdf2image import convert_from_path
+                from PIL import Image
+
+                # Конвертируем первую страницу PDF в изображение
+                images = convert_from_path(passport_path, dpi=300, first_page=1, last_page=1)
+                if not images:
+                    raise Exception("Не удалось конвертировать PDF в изображение")
+
+                img = images[0]
+                print(f"✅ PDF конвертирован в изображение {img.size}")
+
+                # Далее обрабатываем как обычное изображение (код ниже)
+
+            except Exception as pdf_convert_error:
+                print(f"⚠️ Ошибка конвертации PDF: {pdf_convert_error}")
+                # Fallback: отдаем оригинал
+                return FileResponse(
+                    passport_path,
+                    media_type='application/pdf',
+                    filename=pdf_filename,
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{pdf_filename}"'
+                    }
+                )
+        else:
+            # Если изображение - открываем его
+            from PIL import Image
+            img = Image.open(passport_path)
+            img.load()
+
+        # Общий код для создания компактного/OCR PDF из изображения
         try:
             import tempfile
             from reportlab.pdfgen import canvas
             from reportlab.lib.utils import ImageReader
-            from PIL import Image
             from fastapi import Response
             import urllib.parse
             import io
@@ -2054,15 +2105,17 @@ async def get_passport_pdf(
             temp_pdf.close()
 
             # Создаем PDF с изображением
-            print(f"🔄 Создание PDF для паспорта {booking_id}...")
+            print(f"🔄 Создание PDF для паспорта {booking_id} (режим: {mode})...")
 
-            img = Image.open(passport_path)
-            img.load()
+            # img уже открыто выше (либо из Image.open, либо из convert_from_path)
 
             # Для OCR/MRZ важен DPI: 250–300+.
             target_dpi = 300 if mode == "ocr" else 300
+            target_max_bytes = max(200_000, int(float(limit_mb or 1.0) * 1024 * 1024))
 
             def prepare_jpeg(max_side: int | None, quality: int) -> tuple[bytes, int, int]:
+                from PIL import Image as PILImage
+
                 if img.mode != "RGB":
                     img_rgb = img.convert("RGB")
                 else:
@@ -2072,7 +2125,7 @@ async def get_passport_pdf(
                 if max_side and max(w, h) > max_side:
                     scale = max_side / float(max(w, h))
                     new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
-                    img_rgb = img_rgb.resize(new_size, Image.LANCZOS)
+                    img_rgb = img_rgb.resize(new_size, PILImage.LANCZOS)
                     w, h = img_rgb.size
 
                 buf = io.BytesIO()
@@ -2087,8 +2140,6 @@ async def get_passport_pdf(
                 c.setPageCompression(1)
                 c.drawImage(ImageReader(io.BytesIO(jpeg_bytes)), 0, 0, width=page_w, height=page_h)
                 c.save()
-
-            target_max_bytes = max(200_000, int(float(limit_mb or 1.0) * 1024 * 1024))
 
             if mode == "ocr":
                 # OCR режим: максимум качества, не пытаемся ужать до лимита.
