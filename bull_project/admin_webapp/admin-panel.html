@@ -276,6 +276,7 @@
             opacity: 0.9;
             margin-bottom: 16px;
             position: relative;
+            color: white;
         }
 
         .stat-card .value {
@@ -284,6 +285,7 @@
             letter-spacing: -1px;
             position: relative;
             text-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            color: white;
         }
 
         /* Варианты цветов для карточек */
@@ -1113,8 +1115,8 @@
                         <div class="manager-card" onclick="showManagerDetail(${manager.telegram_id}, '${manager.full_name}')">
                             <h3>${manager.full_name}</h3>
                             <div class="manager-stats">
-                                <span>📱 ID: ${manager.telegram_id}</span>
-                                <span>👤 Роль: ${manager.role}</span>
+                                <span>ID: ${manager.telegram_id}</span>
+                                <span>Роль: ${manager.role}</span>
                             </div>
                         </div>
                     `).join('');

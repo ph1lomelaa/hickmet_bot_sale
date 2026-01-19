@@ -8,7 +8,7 @@ def manager_kb():
     from aiogram.types import WebAppInfo
     # Добавляем версию в query, чтобы Telegram не открывал "закэшированный" старый URL из прошлых сообщений.
     HISTORY_URL = "https://ph1lomelaa.github.io/book/history_v2.html?v=2"
-    OPEN_DATE_URL = "https://ph1lomelaa.github.io/book/open_date.html?v=3"  # v=3 для сброса кэша Telegram
+    OPEN_DATE_URL = "https://ph1lomelaa.github.io/book/open_date.html?v=3" 
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
@@ -34,11 +34,13 @@ def admin_kb():
     from aiogram.types import WebAppInfo
     ADMIN_PANEL_URL = "https://ph1lomelaa.github.io/book/admin-panel.html"
     ADMIN_BOOKINGS_URL = "https://ph1lomelaa.github.io/book/admin-bookings.html"
+    ADMIN_REQUESTS_URL = "https://ph1lomelaa.github.io/book/admin-requests.html"
     CARE_SEARCH_URL = "https://ph1lomelaa.github.io/book/search-pilgrim.html"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Аналитика", web_app=WebAppInfo(url=ADMIN_PANEL_URL))],
         [InlineKeyboardButton(text="Список броней", web_app=WebAppInfo(url=ADMIN_BOOKINGS_URL))],
+        [InlineKeyboardButton(text="Заявки на отмену/перенос", web_app=WebAppInfo(url=ADMIN_REQUESTS_URL))],
         [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
         [InlineKeyboardButton(text="Найти паломника", web_app=WebAppInfo(url=CARE_SEARCH_URL))],
         # У админа убираем быстрый переход "Перенос/Отмена" из меню (оставляем только уведомления/заявки через отдельные каналы)
@@ -53,7 +55,6 @@ def search_results_kb(results):
 
     for res in results:
         pass
-        # (Логику генерации реализуем прямо в handler для надежности, см. ниже)
 
     return builder.as_markup()
 

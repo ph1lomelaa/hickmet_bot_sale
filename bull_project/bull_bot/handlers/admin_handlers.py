@@ -67,11 +67,13 @@ async def _send_requests_list(message: Message, request_type: str):
 
 @router.message(Command("cancel"))
 async def admin_cmd_cancel(message: Message):
+    print(f"📥 /cancel команда получена от пользователя {message.from_user.id}")
     await _send_requests_list(message, "cancel")
 
 
 @router.message(Command("reschedule"))
 async def admin_cmd_reschedule(message: Message):
+    print(f"📥 /reschedule команда получена от пользователя {message.from_user.id}")
     await _send_requests_list(message, "reschedule")
 
 
@@ -296,23 +298,38 @@ async def reject_request(call: CallbackQuery):
 # === ОДОБРЕНИЕ ОТМЕНЫ/ПЕРЕНОСА ===
 async def _perform_cancel(booking):
     sheets_cleared = False
+    guest_name = f"{booking.guest_last_name} {booking.guest_first_name}"
+
     if booking.sheet_row_number and booking.table_id and booking.sheet_name:
-        sheets_cleared = await clear_booking_in_sheets(
-            booking.table_id,
-            booking.sheet_name,
-            booking.sheet_row_number,
-            booking.package_name
-        )
+        try:
+            sheets_cleared = await clear_booking_in_sheets(
+                booking.table_id,
+                booking.sheet_name,
+                booking.sheet_row_number,
+                booking.package_name,
+                expected_guest_name=guest_name,  # 🔒 Проверяем имя перед удалением
+            )
+            if not sheets_cleared:
+                print(f"⚠️ Не удалось очистить бронь #{booking.id} (возможно несовпадение имени)")
+        except Exception as e:
+            print(f"❌ Ошибка при очистке брони #{booking.id}: {e}")
+            sheets_cleared = False
 
     red_written = False
     if booking.table_id and booking.sheet_name and booking.package_name:
-        guest_name = f"{booking.guest_last_name} {booking.guest_first_name}"
-        red_written = await write_cancelled_booking_red(
-            booking.table_id,
-            booking.sheet_name,
-            booking.package_name,
-            guest_name
-        )
+        try:
+            red_written = await write_cancelled_booking_red(
+                booking.table_id,
+                booking.sheet_name,
+                booking.package_name,
+                guest_name
+            )
+            if not red_written:
+                print(f"⚠️ Не удалось записать отменённую бронь #{booking.id} в красный список")
+        except Exception as e:
+            print(f"❌ Ошибка при записи в красный список для брони #{booking.id}: {e}")
+            red_written = False
+
     await mark_booking_cancelled(booking.id)
     return sheets_cleared, red_written
 
@@ -472,13 +489,25 @@ async def admin_resched_ok(call: CallbackQuery):
         await call.message.edit_text("❌ Не удалось записать новую бронь в таблицу", reply_markup=admin_kb(), parse_mode="HTML")
         return
 
-    # Обработка старой брони
+    # Обработка старой брони (очистка из таблицы)
     for idx, ob in enumerate(old_bookings):
         if ob.sheet_row_number and ob.table_id and ob.sheet_name:
+            old_guest_name = f"{ob.guest_last_name} {ob.guest_first_name}"
             try:
-                await clear_booking_in_sheets(ob.table_id, ob.sheet_name, ob.sheet_row_number, ob.package_name)
-            except Exception:
-                pass
+                cleared = await clear_booking_in_sheets(
+                    ob.table_id,
+                    ob.sheet_name,
+                    ob.sheet_row_number,
+                    ob.package_name,
+                    expected_guest_name=old_guest_name,  # 🔒 Проверяем имя перед удалением
+                )
+                if cleared:
+                    print(f"✅ Старая бронь #{ob.id} ({old_guest_name}) очищена из таблицы")
+                else:
+                    print(f"⚠️ Не удалось очистить старую бронь #{ob.id} (возможно несовпадение имени)")
+            except Exception as e:
+                print(f"❌ ОШИБКА при очистке старой брони #{ob.id}: {e}")
+
         # Не пишем "перенос красным" снизу таблицы (по требованию)
         target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
         await mark_booking_rescheduled(ob.id, comment=f"Перенесено в #{target_new}")

@@ -458,10 +458,21 @@ async def check_train_exists(sheet_id, sheet_name, package_name):
         return check_has_train_column(all_values, package_name)
     except: return False
 
-async def clear_booking_in_sheets(sheet_id, sheet_name, row_number, package_name):
+async def clear_booking_in_sheets(sheet_id, sheet_name, row_number, package_name, expected_guest_name=None):
     """
     Очищает данные брони из Google Sheets.
     🎨 Также убирает цветную окраску с ячеек имени и фамилии.
+
+    Args:
+        sheet_id: ID таблицы Google Sheets
+        sheet_name: Название листа
+        row_number: Номер строки для очистки
+        package_name: Название пакета
+        expected_guest_name: Ожидаемое имя гостя (формат: "Фамилия Имя").
+                            Если указано, проверяется совпадение перед удалением.
+
+    Returns:
+        bool: True если очистка успешна, False при ошибке или несовпадении имени
     """
     client = get_google_client()
     if not client or not row_number:
@@ -483,6 +494,29 @@ async def clear_booking_in_sheets(sheet_id, sheet_name, row_number, package_name
 
         if not cols:
             return False
+
+        # 🔒 ПРОВЕРКА БЕЗОПАСНОСТИ: Проверяем, что в строке нужный человек
+        if expected_guest_name:
+            actual_last_name = ""
+            actual_first_name = ""
+
+            if 'last_name' in cols and row_number <= len(all_values):
+                actual_last_name = all_values[row_number - 1][cols['last_name']].strip()
+
+            if 'first_name' in cols and row_number <= len(all_values):
+                actual_first_name = all_values[row_number - 1][cols['first_name']].strip()
+
+            actual_name = f"{actual_last_name} {actual_first_name}".strip()
+            expected_name = expected_guest_name.strip()
+
+            if actual_name != expected_name:
+                print(f"⚠️ ВНИМАНИЕ: В строке {row_number} находится другой человек!")
+                print(f"   Ожидали: '{expected_name}'")
+                print(f"   Нашли: '{actual_name}'")
+                print(f"   ❌ Очистка отменена для безопасности")
+                return False
+            else:
+                print(f"   ✅ Проверка имени пройдена: '{actual_name}'")
 
         # Очищаем данные
         fields_to_clear = ['last_name', 'first_name', 'gender', 'dob', 'doc_num', 'doc_exp', 'price', 'comment', 'manager', 'train', 'client_phone']
