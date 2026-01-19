@@ -42,15 +42,24 @@ def _fmt_req_short(req, booking) -> str:
 
 
 async def _send_requests_list(message: Message, request_type: str):
+    print(f"📋 _send_requests_list вызвана: user_id={message.from_user.id}, request_type={request_type}")
+
     role = await get_user_role(message.from_user.id)
+    print(f"   👤 Роль пользователя: {role}")
+
     if role != "admin":
+        print(f"   ❌ Доступ запрещён: роль {role} != admin")
         await message.answer("❌ Команда доступна только администраторам.")
         return
 
     pending = await get_pending_requests()
+    print(f"   📦 Всего pending requests: {len(pending)}")
+
     pending = [r for r in pending if r.status == "pending" and r.request_type == request_type]
+    print(f"   🔍 После фильтрации по типу '{request_type}': {len(pending)} заявок")
 
     if not pending:
+        print(f"   ℹ️ Нет активных заявок типа '{request_type}'")
         await message.answer("✅ Активных заявок нет.", reply_markup=admin_kb())
         return
 
@@ -62,6 +71,7 @@ async def _send_requests_list(message: Message, request_type: str):
     builder.adjust(1)
 
     title = "Заявки на отмену" if request_type == "cancel" else "Заявки на перенос"
+    print(f"   ✅ Отправка списка из {len(pending[:50])} заявок")
     await message.answer(f"📋 <b>{title}</b>\nВыберите заявку:", reply_markup=builder.as_markup(), parse_mode="HTML")
 
 
