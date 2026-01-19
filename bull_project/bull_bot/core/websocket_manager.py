@@ -312,6 +312,20 @@ async def notify_admins_about_request(
             'old_booking_id': booking_data.get('old_booking_id', ''),  # backward compat
             'old_booking_ids': booking_data.get('old_booking_ids', [])  # Для reschedule (group)
         }
+        if request_type == "reschedule":
+            old_ids = request_data.get("old_booking_ids") or []
+            if not old_ids:
+                old_id = request_data.get("old_booking_id")
+                if old_id:
+                    old_ids = [old_id]
+            if old_ids:
+                try:
+                    from bull_project.bull_bot.database.requests import get_booking_by_id
+                    old_booking = await get_booking_by_id(int(old_ids[0]))
+                    if old_booking:
+                        request_data["old_package_name"] = old_booking.package_name
+                except Exception as e:
+                    print(f"⚠️ Не удалось получить старый пакет: {e}")
 
         # Форматируем текст уведомления используя единую функцию
         text = format_admin_notification(

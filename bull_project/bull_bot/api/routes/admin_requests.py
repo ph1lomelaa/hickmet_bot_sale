@@ -117,14 +117,28 @@ async def admin_request_approve(req_id: int):
             return {"ok": True, "status": "cancelled", "sheets_cleared": sheets_cleared, "red_written": red_written}
 
         if req.request_type == "reschedule":
-            old_id = None
-            if req.comment and req.comment.startswith("old:"):
+            old_ids = []
+            new_ids = []
+            manager_comment = None
+            if req.comment:
                 try:
-                    old_id = int(req.comment.split("old:")[1])
+                    import json as _json
+                    parsed = _json.loads(req.comment)
+                    if isinstance(parsed, dict) and ("old_booking_ids" in parsed or "new_booking_ids" in parsed):
+                        old_ids = [int(x) for x in (parsed.get("old_booking_ids") or []) if int(x) > 0]
+                        new_ids = [int(x) for x in (parsed.get("new_booking_ids") or []) if int(x) > 0]
+                        manager_comment = (parsed.get("comment") or "").strip() or None
                 except Exception:
-                    old_id = None
-            old_booking = await get_booking_by_id(old_id) if old_id else None
+                    pass
+            if not new_ids:
+                new_ids = [booking.id]
+            if not old_ids and req.comment and req.comment.startswith("old:"):
+                try:
+                    old_ids = [int(req.comment.split("old:")[1])]
+                except Exception:
+                    old_ids = []
 
+            # Записываем новую бронь/группу в Sheets
             common_data = {
                 'table_id': booking.table_id,
                 'sheet_name': booking.sheet_name,
@@ -139,35 +153,44 @@ async def admin_request_approve(req_id: int):
                 'region': booking.region,
                 'departure_city': booking.departure_city,
                 'source': booking.source,
-                'comment': booking.comment,
+                'comment': manager_comment or booking.comment,
                 'manager_name_text': booking.manager_name_text,
                 'train': booking.train,
                 'visa_status': booking.visa_status,
                 'avia': booking.avia,
             }
-            person = {
-                "Last Name": booking.guest_last_name,
-                "First Name": booking.guest_first_name,
-                "Gender": booking.gender,
-                "Date of Birth": booking.date_of_birth,
-                "Document Number": booking.passport_num,
-                "Document Expiration": booking.passport_expiry,
-                "IIN": booking.guest_iin,
-                "client_phone": booking.client_phone,
-                "passport_image_path": booking.passport_image_path,
-            }
-            saved_rows = await save_group_booking([person], common_data, booking.placement_type or 'separate')
+            persons = []
+            for bid in new_ids:
+                nb = await get_booking_by_id(bid)
+                if not nb:
+                    continue
+                persons.append({
+                    "Last Name": nb.guest_last_name,
+                    "First Name": nb.guest_first_name,
+                    "Gender": nb.gender,
+                    "Date of Birth": nb.date_of_birth,
+                    "Document Number": nb.passport_num,
+                    "Document Expiration": nb.passport_expiry,
+                    "IIN": nb.guest_iin,
+                    "client_phone": nb.client_phone,
+                    "passport_image_path": nb.passport_image_path,
+                })
+            saved_rows = await save_group_booking(persons, common_data, booking.placement_type or 'separate')
             if saved_rows:
-                await update_booking_row(booking.id, saved_rows[0])
-                await update_booking_fields(booking.id, {"status": "new"})
+                for i, bid in enumerate(new_ids):
+                    if i < len(saved_rows):
+                        await update_booking_row(bid, saved_rows[i])
+                    await update_booking_fields(bid, {"status": "new"})
             else:
                 return JSONResponse(status_code=500, content={"ok": False, "error": "sheet write failed"})
 
-            # 🔄 УДАЛЯЕМ СТАРУЮ БРОНЬ ПРИ ПЕРЕНОСЕ
-            if old_booking:
+            # 🔄 УДАЛЯЕМ СТАРЫЕ БРОНИ ПРИ ПЕРЕНОСЕ
+            for idx, old_id in enumerate(old_ids):
+                old_booking = await get_booking_by_id(old_id)
+                if not old_booking:
+                    continue
                 old_guest_name = f"{old_booking.guest_last_name} {old_booking.guest_first_name}"
 
-                # Очищаем старую бронь из таблицы
                 if old_booking.sheet_row_number and old_booking.table_id and old_booking.sheet_name:
                     try:
                         cleared = await clear_booking_in_sheets(
@@ -175,7 +198,7 @@ async def admin_request_approve(req_id: int):
                             old_booking.sheet_name,
                             old_booking.sheet_row_number,
                             old_booking.package_name,
-                            expected_guest_name=old_guest_name,  # 🔒 Проверяем имя перед удалением
+                            expected_guest_name=old_guest_name,
                         )
                         if cleared:
                             print(f"✅ Старая бронь #{old_booking.id} очищена из таблицы")
@@ -184,7 +207,6 @@ async def admin_request_approve(req_id: int):
                     except Exception as e:
                         print(f"❌ ОШИБКА при очистке старой брони #{old_booking.id}: {e}")
 
-                # Записываем в красный список (перенос)
                 try:
                     red_written = await write_rescheduled_booking_red(
                         old_booking.table_id,
@@ -199,8 +221,8 @@ async def admin_request_approve(req_id: int):
                 except Exception as e:
                     print(f"❌ ОШИБКА при записи в красный список для старой брони #{old_booking.id}: {e}")
 
-                # Помечаем старую бронь как перенесённую в БД
-                await mark_booking_rescheduled(old_booking.id, comment=f"Перенесено в #{booking.id}")
+                target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
+                await mark_booking_rescheduled(old_booking.id, comment=f"Перенесено в #{target_new}")
 
             await update_approval_status(req_id, "approved")
             await delete_admin_request_inbox(req_id)

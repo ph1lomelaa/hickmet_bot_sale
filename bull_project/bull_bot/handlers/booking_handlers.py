@@ -104,6 +104,7 @@ async def cmd_start(message: Message, state: FSMContext):
             with suppress(Exception):
                 await message.bot.set_my_commands(
                     commands=[
+                        BotCommand(command="start", description="Главное меню"),
                         BotCommand(command="cancel", description="Заявки на отмену (ожидают подтверждения)"),
                         BotCommand(command="reschedule", description="Заявки на перенос (ожидают подтверждения)"),
                     ],
