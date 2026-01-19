@@ -356,6 +356,9 @@ async def notify_admins_about_request(
                 )
 
                 print(f"   📬 Результат отправки: {result}")
+                if result.get("ok"):
+                    from bull_project.bull_bot.database.requests import add_admin_request_inbox
+                    await add_admin_request_inbox(admin_id, request_id)
 
             except Exception as e:
                 print(f"   ⚠️ Ошибка отправки уведомления админу {admin_id}: {e}")

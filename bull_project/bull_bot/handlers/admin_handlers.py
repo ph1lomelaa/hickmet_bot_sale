@@ -12,7 +12,8 @@ from bull_project.bull_bot.database.requests import (
     get_approval_request, update_approval_status, get_booking_by_id,
     mark_booking_cancelled, update_booking_fields, get_user_role, get_manager_packages, get_bookings_in_package,
     get_admin_settings, set_admin_settings, update_booking_row,
-    get_pending_requests,
+    get_pending_requests_for_admin,
+    delete_admin_request_inbox,
 )
 from bull_project.bull_bot.config.keyboards import admin_kb
 from bull_project.bull_bot.config.constants import bot
@@ -52,11 +53,8 @@ async def _send_requests_list(message: Message, request_type: str):
         await message.answer("❌ Команда доступна только администраторам.")
         return
 
-    pending = await get_pending_requests()
-    print(f"   📦 Всего pending requests: {len(pending)}")
-
-    pending = [r for r in pending if r.status == "pending" and r.request_type == request_type]
-    print(f"   🔍 После фильтрации по типу '{request_type}': {len(pending)} заявок")
+    pending = await get_pending_requests_for_admin(message.from_user.id, request_type)
+    print(f"   📦 Pending requests для админа ({request_type}): {len(pending)}")
 
     if not pending:
         print(f"   ℹ️ Нет активных заявок типа '{request_type}'")
@@ -151,8 +149,7 @@ async def admin_req_back(call: CallbackQuery):
         return
 
     req_type = call.data.split(":")[1] if ":" in call.data else "cancel"
-    pending = await get_pending_requests()
-    pending = [r for r in pending if r.status == "pending" and r.request_type == req_type]
+    pending = await get_pending_requests_for_admin(call.from_user.id, req_type)
 
     if not pending:
         with suppress(TelegramBadRequest):
@@ -364,6 +361,7 @@ async def admin_cancel_ok(call: CallbackQuery):
     await call.message.edit_text("⏳ Обрабатываю отмену...", parse_mode="HTML")
     sheets_cleared, red_written = await _perform_cancel(booking)
     await update_approval_status(req_id, "approved")
+    await delete_admin_request_inbox(req_id)
 
     status_parts = []
     status_parts.append("✅ Данные очищены из таблицы" if sheets_cleared else "⚠️ Не удалось очистить данные")
@@ -398,6 +396,7 @@ async def admin_cancel_reject(call: CallbackQuery):
     if booking:
         await update_booking_fields(booking.id, {"status": "new"})
     await update_approval_status(req_id, "rejected")
+    await delete_admin_request_inbox(req_id)
 
     await call.message.edit_text("❌ Заявка на отмену отклонена.", reply_markup=admin_kb(), parse_mode="HTML")
     try:
@@ -496,6 +495,7 @@ async def admin_resched_ok(call: CallbackQuery):
         for ob in old_bookings:
             await update_booking_fields(ob.id, {"status": "new"})
         await update_approval_status(req_id, "rejected")
+        await delete_admin_request_inbox(req_id)
         await call.message.edit_text("❌ Не удалось записать новую бронь в таблицу", reply_markup=admin_kb(), parse_mode="HTML")
         return
 
@@ -523,6 +523,7 @@ async def admin_resched_ok(call: CallbackQuery):
         await mark_booking_rescheduled(ob.id, comment=f"Перенесено в #{target_new}")
 
     await update_approval_status(req_id, "approved")
+    await delete_admin_request_inbox(req_id)
 
     text = (
         f"♻️ <b>Перенос одобрен</b>\n"
@@ -588,6 +589,7 @@ async def admin_resched_reject(call: CallbackQuery):
         await update_booking_fields(oid, {"status": "new"})
 
     await update_approval_status(req_id, "rejected")
+    await delete_admin_request_inbox(req_id)
     await call.message.edit_text("❌ Перенос отклонен.", reply_markup=admin_kb(), parse_mode="HTML")
     try:
         if old_ids and len(old_ids) == 1:

@@ -12,6 +12,7 @@ from bull_project.bull_bot.database.requests import (
     get_booking_by_id,
     get_approval_request,
     update_approval_status,
+    delete_admin_request_inbox,
     mark_booking_cancelled,
     mark_booking_rescheduled,
     update_booking_fields,
@@ -112,6 +113,7 @@ async def admin_request_approve(req_id: int):
 
             await mark_booking_cancelled(booking.id)
             await update_approval_status(req_id, "approved")
+            await delete_admin_request_inbox(req_id)
             return {"ok": True, "status": "cancelled", "sheets_cleared": sheets_cleared, "red_written": red_written}
 
         if req.request_type == "reschedule":
@@ -201,6 +203,7 @@ async def admin_request_approve(req_id: int):
                 await mark_booking_rescheduled(old_booking.id, comment=f"Перенесено в #{booking.id}")
 
             await update_approval_status(req_id, "approved")
+            await delete_admin_request_inbox(req_id)
             return {"ok": True, "status": "rescheduled", "saved_rows": saved_rows}
 
         return JSONResponse(status_code=400, content={"ok": False, "error": "unknown type"})
@@ -230,7 +233,7 @@ async def admin_request_reject(req_id: int):
             if booking:
                 await update_booking_fields(booking.id, {"status": "new"})
         await update_approval_status(req_id, "rejected")
+        await delete_admin_request_inbox(req_id)
         return {"ok": True, "status": "rejected"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
-

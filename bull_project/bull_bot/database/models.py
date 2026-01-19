@@ -100,6 +100,13 @@ class ApprovalRequest(Base):
     comment = Column(Text, nullable=True)  # для reschedule можно хранить old_booking_id
 
 
+class AdminRequestInbox(Base):
+    __tablename__ = 'admin_request_inbox'
+    admin_id = Column(BigInteger, ForeignKey('users.telegram_id'), primary_key=True)
+    request_id = Column(Integer, ForeignKey('approval_requests.id'), primary_key=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class OpenDateBooking(Base):
     """
     Хранит паломников, записанных на OPEN DATE (без конкретной даты).

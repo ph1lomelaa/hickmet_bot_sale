@@ -1,6 +1,6 @@
 from sqlalchemy import select, desc, func, distinct, or_, text
 from datetime import datetime, timedelta
-from .models import User, Booking, Request4U, AdminSettings, ApprovalRequest, OpenDateBooking
+from .models import User, Booking, Request4U, AdminSettings, ApprovalRequest, AdminRequestInbox, OpenDateBooking
 from .setup import async_session, engine
 
 from bull_project.bull_bot.core.passport_storage import normalize_passport_path_for_storage
@@ -57,6 +57,28 @@ async def check_group_members_column_exists():
         # SQLite или другая ошибка - считаем что колонки нет
         print(f"⚠️ Не удалось проверить колонку group_members: {type(e).__name__}")
         return False
+
+async def ensure_admin_request_inbox_table():
+    """Гарантирует наличие таблицы admin_request_inbox (SQLite/Postgres)."""
+    async with engine.begin() as conn:
+        if engine.url.drivername.startswith("postgresql"):
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS admin_request_inbox (
+                    admin_id BIGINT NOT NULL,
+                    request_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (admin_id, request_id)
+                )
+            """))
+        else:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS admin_request_inbox (
+                    admin_id INTEGER NOT NULL,
+                    request_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (admin_id, request_id)
+                )
+            """))
 
 # === ПОЛЬЗОВАТЕЛИ ===
 
@@ -124,6 +146,29 @@ async def set_admin_settings(admin_id: int, notify_new: bool = None, notify_canc
             settings.notify_reschedule = 1 if notify_reschedule else 0
         await session.commit()
 
+async def add_admin_request_inbox(admin_id: int, request_id: int):
+    await ensure_admin_request_inbox_table()
+    async with engine.begin() as conn:
+        if engine.url.drivername.startswith("postgresql"):
+            await conn.execute(text("""
+                INSERT INTO admin_request_inbox (admin_id, request_id)
+                VALUES (:admin_id, :request_id)
+                ON CONFLICT (admin_id, request_id) DO NOTHING
+            """), {"admin_id": admin_id, "request_id": request_id})
+        else:
+            await conn.execute(text("""
+                INSERT OR IGNORE INTO admin_request_inbox (admin_id, request_id)
+                VALUES (:admin_id, :request_id)
+            """), {"admin_id": admin_id, "request_id": request_id})
+
+async def delete_admin_request_inbox(request_id: int):
+    await ensure_admin_request_inbox_table()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM admin_request_inbox WHERE request_id = :request_id"),
+            {"request_id": request_id},
+        )
+
 # === APPROVAL REQUESTS ===
 async def create_approval_request(booking_id: int, request_type: str, initiator_id: int, comment: str = None) -> int:
     async with async_session() as session:
@@ -150,6 +195,25 @@ async def get_pending_requests():
     await ensure_group_members_column()
     async with async_session() as session:
         query = select(ApprovalRequest).where(ApprovalRequest.status == "pending").order_by(desc(ApprovalRequest.created_at))
+        result = await session.scalars(query)
+        return result.all()
+
+async def get_pending_requests_for_admin(admin_id: int, request_type: str):
+    await ensure_admin_request_inbox_table()
+    async with async_session() as session:
+        query = (
+            select(ApprovalRequest)
+            .join(
+                AdminRequestInbox,
+                (AdminRequestInbox.request_id == ApprovalRequest.id)
+                & (AdminRequestInbox.admin_id == admin_id)
+            )
+            .where(
+                ApprovalRequest.status == "pending",
+                ApprovalRequest.request_type == request_type
+            )
+            .order_by(desc(ApprovalRequest.created_at))
+        )
         result = await session.scalars(query)
         return result.all()
 
