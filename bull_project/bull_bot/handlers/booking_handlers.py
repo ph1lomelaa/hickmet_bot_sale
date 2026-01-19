@@ -96,6 +96,13 @@ def ensure_uploads_dir():
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    # Глобально показываем /start всем пользователям в меню команд.
+    with suppress(Exception):
+        await message.bot.set_my_commands(
+            commands=[
+                BotCommand(command="start", description="Главное меню"),
+            ]
+        )
     user = await get_user_by_id(message.from_user.id)
     if user and user.role != "guest":
         if user.role == "admin":
@@ -105,8 +112,6 @@ async def cmd_start(message: Message, state: FSMContext):
                 await message.bot.set_my_commands(
                     commands=[
                         BotCommand(command="start", description="Главное меню"),
-                        BotCommand(command="cancel", description="Заявки на отмену (ожидают подтверждения)"),
-                        BotCommand(command="reschedule", description="Заявки на перенос (ожидают подтверждения)"),
                     ],
                     scope=BotCommandScopeChat(chat_id=message.chat.id),
                 )
