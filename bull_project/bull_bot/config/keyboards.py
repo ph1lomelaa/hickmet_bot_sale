@@ -6,9 +6,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def manager_kb():
     """Меню для Менеджера (Продажи)"""
     from aiogram.types import WebAppInfo
-    # Добавляем версию в query, чтобы Telegram не открывал "закэшированный" старый URL из прошлых сообщений.
-    HISTORY_URL = "https://ph1lomelaa.github.io/book/history_v2.html?v=2"
-    OPEN_DATE_URL = "https://ph1lomelaa.github.io/book/open_date.html?v=3" 
+    import time
+    # Используем timestamp для cache-busting (Telegram не будет кэшировать разные URLs)
+    cache_bust = int(time.time())
+    HISTORY_URL = f"https://ph1lomelaa.github.io/book/history_v2.html?t={cache_bust}"
+    OPEN_DATE_URL = f"https://ph1lomelaa.github.io/book/open_date.html?t={cache_bust}" 
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Создать бронь", callback_data="create_booking")],
@@ -19,10 +21,12 @@ def manager_kb():
 def care_kb():
     """Меню для Отдела Заботы"""
     from aiogram.types import WebAppInfo
+    import time
+    cache_bust = int(time.time())
 
-    CARE_BOOKINGS_URL = "https://ph1lomelaa.github.io/book/admin-bookings.html"
-    CARE_SEARCH_URL = "https://ph1lomelaa.github.io/book/search-pilgrim.html"
-    CARE_PACKAGES_URL = "https://ph1lomelaa.github.io/book/package-lists.html"
+    CARE_BOOKINGS_URL = f"https://ph1lomelaa.github.io/book/admin-bookings.html?t={cache_bust}"
+    CARE_SEARCH_URL = f"https://ph1lomelaa.github.io/book/search-pilgrim.html?t={cache_bust}"
+    CARE_PACKAGES_URL = f"https://ph1lomelaa.github.io/book/package-lists.html?t={cache_bust}"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Список броней", web_app=WebAppInfo(url=CARE_BOOKINGS_URL))],
@@ -32,10 +36,13 @@ def care_kb():
 
 def admin_kb():
     from aiogram.types import WebAppInfo
-    ADMIN_PANEL_URL = "https://ph1lomelaa.github.io/book/admin-panel.html"
-    ADMIN_BOOKINGS_URL = "https://ph1lomelaa.github.io/book/admin-bookings.html"
-    ADMIN_REQUESTS_URL = "https://ph1lomelaa.github.io/book/admin-requests.html"
-    CARE_SEARCH_URL = "https://ph1lomelaa.github.io/book/search-pilgrim.html"
+    import time
+    cache_bust = int(time.time())
+    
+    ADMIN_PANEL_URL = f"https://ph1lomelaa.github.io/book/admin-panel.html?t={cache_bust}"
+    ADMIN_BOOKINGS_URL = f"https://ph1lomelaa.github.io/book/admin-bookings.html?t={cache_bust}"
+    ADMIN_REQUESTS_URL = f"https://ph1lomelaa.github.io/book/admin-requests.html?t={cache_bust}"
+    CARE_SEARCH_URL = f"https://ph1lomelaa.github.io/book/search-pilgrim.html?t={cache_bust}"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Аналитика", web_app=WebAppInfo(url=ADMIN_PANEL_URL))],
