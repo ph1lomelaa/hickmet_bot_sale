@@ -318,9 +318,12 @@ async def _perform_cancel(booking):
             )
             if not sheets_cleared:
                 print(f"⚠️ Не удалось очистить бронь #{booking.id} (возможно несовпадение имени)")
+                # 🔥 ВАЖНО: Если не удалось очистить - НЕ отмечаем как отменённую!
+                return False
         except Exception as e:
             print(f"❌ Ошибка при очистке брони #{booking.id}: {e}")
-            sheets_cleared = False
+            # 🔥 ВАЖНО: При ошибке тоже НЕ отмечаем как отменённую!
+            return False
 
     red_written = False
     if booking.table_id and booking.sheet_name and booking.package_name:
@@ -337,7 +340,9 @@ async def _perform_cancel(booking):
             print(f"❌ Ошибка при записи в красный список для брони #{booking.id}: {e}")
             red_written = False
 
+    # ✅ Только если успешно очистили из Sheets - отмечаем в БД
     await mark_booking_cancelled(booking.id)
+    return True
     return sheets_cleared, red_written
 
 @router.callback_query(F.data.startswith("admin_cancel_ok:"))
@@ -359,19 +364,31 @@ async def admin_cancel_ok(call: CallbackQuery):
         return
 
     await call.message.edit_text("⏳ Обрабатываю отмену...", parse_mode="HTML")
-    sheets_cleared, red_written = await _perform_cancel(booking)
+    
+    cancel_success = await _perform_cancel(booking)
+    
+    # ❌ Если отмена не удалась - уведомляем админа и НЕ отмечаем в БД
+    if not cancel_success:
+        await call.answer("❌ Не удалось очистить бронь из Google Sheets. Проверьте имя паломника!", show_alert=True)
+        await call.message.edit_text(
+            f"❌ <b>Ошибка при отмене брони #{booking.id}</b>\n"
+            f"Не удалось удалить данные из Google Sheets.\n"
+            f"Возможно, имя паломника в таблице не совпадает с сохранённым в БД.\n\n"
+            f"Паломник: {booking.guest_last_name} {booking.guest_first_name}",
+            reply_markup=admin_kb(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # ✅ Только если успешно - отмечаем в БД
     await update_approval_status(req_id, "approved")
     await delete_admin_request_inbox(req_id)
-
-    status_parts = []
-    status_parts.append("✅ Данные очищены из таблицы" if sheets_cleared else "⚠️ Не удалось очистить данные")
-    status_parts.append("✅ Отмена записана красным" if red_written else "⚠️ Не удалось записать отмену красным")
 
     text = (
         f"🗑 <b>Бронь #{booking.id} отменена</b>\n"
         f"Пакет: {booking.package_name}\n"
         f"Паломник: {booking.guest_last_name} {booking.guest_first_name}\n\n"
-        + "\n".join(status_parts)
+        f"✅ Данные очищены из Google Sheets"
     )
     await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="HTML")
     # Уведомляем инициатора
@@ -500,6 +517,7 @@ async def admin_resched_ok(call: CallbackQuery):
         return
 
     # Обработка старой брони (очистка из таблицы)
+    cleanup_failed = False
     for idx, ob in enumerate(old_bookings):
         if ob.sheet_row_number and ob.table_id and ob.sheet_name:
             old_guest_name = f"{ob.guest_last_name} {ob.guest_first_name}"
@@ -513,14 +531,22 @@ async def admin_resched_ok(call: CallbackQuery):
                 )
                 if cleared:
                     print(f"✅ Старая бронь #{ob.id} ({old_guest_name}) очищена из таблицы")
+                    # ✅ Только если успешно очистили - отмечаем как перенесённую
+                    target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
+                    await mark_booking_rescheduled(ob.id, comment=f"Перенесено в #{target_new}")
                 else:
                     print(f"⚠️ Не удалось очистить старую бронь #{ob.id} (возможно несовпадение имени)")
+                    cleanup_failed = True
             except Exception as e:
                 print(f"❌ ОШИБКА при очистке старой брони #{ob.id}: {e}")
+                cleanup_failed = True
+        else:
+            # Если нет данных для очистки из Sheets - отмечаем как перенесённую
+            target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
+            await mark_booking_rescheduled(ob.id, comment=f"Перенесено в #{target_new}")
 
-        # Не пишем "перенос красным" снизу таблицы (по требованию)
-        target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
-        await mark_booking_rescheduled(ob.id, comment=f"Перенесено в #{target_new}")
+    if cleanup_failed:
+        await call.answer("⚠️ Перенос одобрен, но ВНИМАНИЕ: Не удалось очистить некоторые старые брони из таблицы. Проверьте вручную!", show_alert=True)
 
     await update_approval_status(req_id, "approved")
     await delete_admin_request_inbox(req_id)

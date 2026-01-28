@@ -509,14 +509,18 @@ async def clear_booking_in_sheets(sheet_id, sheet_name, row_number, package_name
             actual_name = f"{actual_last_name} {actual_first_name}".strip()
             expected_name = expected_guest_name.strip()
 
-            if actual_name != expected_name:
+            # 🔥 Нормализуем оба имени: убираем доп. пробелы, приводим к нижнему регистру
+            actual_name_normalized = " ".join(actual_name.split()).lower()
+            expected_name_normalized = " ".join(expected_name.split()).lower()
+
+            if actual_name_normalized != expected_name_normalized:
                 print(f"⚠️ ВНИМАНИЕ: В строке {row_number} находится другой человек!")
-                print(f"   Ожидали: '{expected_name}'")
-                print(f"   Нашли: '{actual_name}'")
+                print(f"   Ожидали: '{expected_name}' (нормализовано: '{expected_name_normalized}')")
+                print(f"   Нашли: '{actual_name}' (нормализовано: '{actual_name_normalized}')")
                 print(f"   ❌ Очистка отменена для безопасности")
                 return False
             else:
-                print(f"   ✅ Проверка имени пройдена: '{actual_name}'")
+                print(f"   ✅ Проверка имени пройдена: '{actual_name}' == '{expected_name}'")
 
         # Очищаем данные
         fields_to_clear = ['last_name', 'first_name', 'gender', 'dob', 'doc_num', 'doc_exp', 'price', 'comment', 'manager', 'train', 'client_phone']
