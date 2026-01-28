@@ -48,6 +48,13 @@ class BookingSubmitIn(BaseModel):
 
 class RescheduleRequestIn(BookingSubmitIn):
     old_booking_id: int
+    old_booking_ids: List[int] = []
+
+
+class CancelRequestIn(BaseModel):
+    booking_id: int
+    comment: str
+    initiator_id: Optional[int] = None
 
 
 class BookingUpdateIn(BaseModel):
@@ -75,4 +82,3 @@ class BookingUpdateIn(BaseModel):
     placement_type: Optional[str] = None
     specific_row: Optional[int] = None
     manager_id: Optional[int] = None
-

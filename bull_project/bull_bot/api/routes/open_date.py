@@ -269,7 +269,6 @@ async def convert_to_regular_booking(booking_id: int, data: ConvertToBookingRequ
 
 @router.delete("/{booking_id}")
 async def delete_open_date_booking(booking_id: int):
-    """Удаляет OPEN DATE бронь"""
     try:
         success = await db.delete_open_date_booking(booking_id)
 

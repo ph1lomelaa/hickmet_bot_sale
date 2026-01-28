@@ -1,8 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# ==================== РОЛЕВЫЕ МЕНЮ (ГЛАВНЫЕ) ====================
-
 def manager_kb():
     """Меню для Менеджера (Продажи)"""
     from aiogram.types import WebAppInfo
@@ -19,7 +17,6 @@ def manager_kb():
     ])
 
 def care_kb():
-    """Меню для Отдела Заботы"""
     from aiogram.types import WebAppInfo
     import time
     cache_bust = int(time.time())

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Dict
 from urllib.parse import unquote_plus
 
 
@@ -56,3 +56,31 @@ def check_passport_expiry(passport_expiry: str) -> Optional[str]:
     except Exception:
         return None
 
+
+def get_active_tables_for_care() -> Dict[str, str]:
+    """
+    Возвращает словарь таблиц за текущий и следующий год.
+    Если фильтр ничего не вернул, отдаём все доступные таблицы.
+    """
+    from bull_project.bull_bot.core.google_sheets.client import get_accessible_tables
+
+    tables = get_accessible_tables() or {}
+    now = datetime.now()
+    years = {str(now.year), str(now.year + 1)}
+    filtered = {name: table_id for name, table_id in tables.items() if any(y in name for y in years)}
+    return filtered or tables
+
+
+async def resolve_passport_path(booking) -> Optional[str]:
+    """
+    Возвращает путь к паспорту для брони, с фолбэком на последнее фото по ФИО.
+    """
+    from bull_project.bull_bot.database.requests import get_latest_passport_for_person
+
+    passport_path = booking.passport_image_path
+    if not passport_path and booking.guest_last_name and booking.guest_first_name:
+        passport_path = await get_latest_passport_for_person(
+            booking.guest_last_name,
+            booking.guest_first_name
+        )
+    return passport_path

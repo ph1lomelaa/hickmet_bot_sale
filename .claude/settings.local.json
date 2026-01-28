@@ -27,7 +27,9 @@
       "Bash(bull_project/.venv/bin/python:*)",
       "Bash(timeout 5 bull_project/.venv/bin/python:*)",
       "Bash(timeout 5 cat:*)",
-      "Bash(cd /Users/muslimakosmagambetova/Downloads/tired2\\\\ 2/bull_project && MOCK_MODE=false .venv/bin/python:*)"
+      "Bash(cd /Users/muslimakosmagambetova/Downloads/tired2\\\\ 2/bull_project && MOCK_MODE=false .venv/bin/python:*)",
+      "Bash(timeout 5 .venv/bin/python:*)",
+      "Bash(ls:*)"
     ]
   }
 }

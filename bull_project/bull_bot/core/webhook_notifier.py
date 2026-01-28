@@ -26,18 +26,6 @@ class WebhookNotifier:
         db_ids: List[int],
         saved_rows: List[int]
     ) -> bool:
-        """
-        Отправляет уведомление о новой брони на webhook URL
-
-        Args:
-            bookings_data: Список данных о паломниках
-            package_info: Информация о пакете
-            db_ids: ID записей в базе данных
-            saved_rows: Номера строк в Google Sheets
-
-        Returns:
-            True если отправка успешна, False иначе
-        """
         if not self.enabled:
             return False
 
@@ -92,12 +80,7 @@ class WebhookNotifier:
             return False
 
     async def send_test_notification(self) -> bool:
-        """
-        Отправляет тестовое уведомление для проверки работы webhook
-
-        Returns:
-            True если отправка успешна, False иначе
-        """
+        
         if not self.enabled:
             print("❌ Webhook отключен, тестовое уведомление не отправлено")
             return False
@@ -131,7 +114,6 @@ class WebhookNotifier:
             return False
 
 
-# Глобальный экземпляр notifier
 webhook_notifier = WebhookNotifier()
 
 
