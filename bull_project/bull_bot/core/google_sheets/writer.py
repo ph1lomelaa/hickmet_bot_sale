@@ -21,7 +21,7 @@ def row_col_to_a1(row, col):
         div = int((div - module) / 26)
     return string + str(row)
 
-async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims, saved_rows, cols, common_data, group_color):
+async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims, saved_rows, cols, common_data, group_color, parent_row_override=None):
     """
     Обрабатывает INF паломников - вставляет для них строки под родителями.
 
@@ -43,13 +43,13 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
     """
     print(f"\n🍼 Обработка INF паломников...")
 
-    # Проверяем есть ли INF паломники
-    inf_count = sum(1 for p in all_pilgrims if p.get('is_infant', False))
-    if inf_count == 0:
-        print(f"   ℹ️ INF паломников нет, возвращаем исходные строки")
+    # Проверяем есть ли INF/CHD паломники
+    special_count = sum(1 for p in all_pilgrims if p.get('is_infant', False) or p.get('is_child', False))
+    if special_count == 0:
+        print(f"   ℹ️ INF/CHD паломников нет, возвращаем исходные строки")
         return saved_rows
 
-    print(f"   Найдено INF паломников: {inf_count}")
+    print(f"   Найдено INF/CHD паломников: {special_count}")
 
     # 🔥 НОВЫЙ ПОДХОД: Создаем карту индекс в all_pilgrims -> строка в таблице (только для обычных)
     pilgrim_idx_to_row = {}
@@ -57,7 +57,8 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
 
     for i, pilgrim in enumerate(all_pilgrims):
         is_inf = pilgrim.get('is_infant', False)
-        if not is_inf:
+        is_chd = pilgrim.get('is_child', False)
+        if not is_inf and not is_chd:
             pilgrim_idx_to_row[i] = saved_rows[regular_idx]
             regular_idx += 1
 
@@ -74,16 +75,23 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
     # 🔥 Обрабатываем INF паломников - ПОСЛЕ всех обычных
     # Сортируем по индексу чтобы обрабатывать в порядке от конца к началу
     # (чтобы вставки не сдвигали еще необработанных)
-    inf_indices = [(i, p) for i, p in enumerate(all_pilgrims) if p.get('is_infant', False)]
+    inf_indices = [
+        (i, p)
+        for i, p in enumerate(all_pilgrims)
+        if p.get('is_infant', False) or p.get('is_child', False)
+    ]
 
     # Обрабатываем INF в обратном порядке (от конца к началу)
     for i, pilgrim in reversed(inf_indices):
-        print(f"\n   🍼 INF паломник #{i+1} (из {len(all_pilgrims)}):")
+        is_inf = pilgrim.get('is_infant', False)
+        is_chd = pilgrim.get('is_child', False)
+        label = "INF" if is_inf else "CHD" if is_chd else "PAX"
+        print(f"\n   🍼 INF/CHD паломник #{i+1} (из {len(all_pilgrims)}): {label}")
 
         # Ищем ближайшего обычного паломника ПЕРЕД этим INF
         parent_idx = None
         for j in range(i - 1, -1, -1):
-            if not all_pilgrims[j].get('is_infant', False):
+            if not (all_pilgrims[j].get('is_infant', False) or all_pilgrims[j].get('is_child', False)):
                 parent_idx = j
                 break
 
@@ -92,16 +100,20 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
             print(f"      INF идет первым, используем первого обычного паломника")
             # Находим первого обычного паломника
             for j in range(len(all_pilgrims)):
-                if not all_pilgrims[j].get('is_infant', False):
+                if not (all_pilgrims[j].get('is_infant', False) or all_pilgrims[j].get('is_child', False)):
                     parent_idx = j
                     break
 
         if parent_idx is None:
-            print(f"      ⚠️ Нет обычных паломников вообще - пропускаем INF")
-            continue
-
-        parent_row = pilgrim_idx_to_row[parent_idx]
-        print(f"      Родитель: паломник #{parent_idx+1}, строка {parent_row}")
+            if parent_row_override:
+                parent_row = parent_row_override
+                print(f"      ✅ Используем родителя по specific_row: строка {parent_row}")
+            else:
+                print(f"      ⚠️ Нет обычных паломников вообще - пропускаем INF")
+                continue
+        else:
+            parent_row = pilgrim_idx_to_row[parent_idx]
+            print(f"      Родитель: паломник #{parent_idx+1}, строка {parent_row}")
 
         def _get_cell_value(row_idx: int, col_zero_based: int) -> str:
             if row_idx <= 0:
@@ -125,9 +137,12 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
             ws.insert_row(values=[""] * 50, index=new_row_idx)
             print(f"      ✅ Вставлена пустая строка {new_row_idx}")
 
-            # Подготавливаем данные для INF паломника
+            # Подготавливаем данные для INF/CHD паломника
             infant_data = {**common_data, **pilgrim}
-            infant_data['meal_type'] = 'INF'  # 🔥 Тип питания = INF
+            if is_chd:
+                infant_data['meal_type'] = 'CHD'
+            else:
+                infant_data['meal_type'] = 'INF'
             # На всякий случай: менеджер должен быть одинаковым для всех строк группы (включая INF)
             infant_data['manager_name_text'] = common_data.get('manager_name_text', infant_data.get('manager_name_text', ''))
 
@@ -136,11 +151,11 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
             price_tasks_infant = []
             _prepare_updates(updates_infant, price_tasks_infant, new_row_idx, cols, infant_data)
 
-            # 🔥 Записываем "INF" в колонку "№"
+            # 🔥 Записываем "INF/CHD" в колонку "№"
             if 'num' in cols:
                 num_col_a1 = row_col_to_a1(new_row_idx, cols['num'] + 1)
-                updates_infant.append({'range': num_col_a1, 'values': [['INF']]})
-                print(f"      ✅ Записали 'INF' в колонку №: {num_col_a1}")
+                updates_infant.append({'range': num_col_a1, 'values': [[label]]})
+                print(f"      ✅ Записали '{label}' в колонку №: {num_col_a1}")
 
             # Применяем обновления
             if updates_infant:
@@ -248,13 +263,13 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
             print(f"      is_infant: {is_inf} (тип: {type(is_inf)})")
             print(f"      is_child: {is_chd} (тип: {type(is_chd)})")
             all_pilgrims.append(person)
-            if not is_inf:
+            if not is_inf and not is_chd:
                 regular_pilgrims.append(person)
 
         print(f"\n📊 Обработка группы:")
         print(f"   Всего паломников: {len(all_pilgrims)}")
         print(f"   Обычных (для размещения): {len(regular_pilgrims)}")
-        print(f"   INF (младенцев): {len(all_pilgrims) - len(regular_pilgrims)}")
+        print(f"   INF/CHD (без места): {len(all_pilgrims) - len(regular_pilgrims)}")
 
         # Пастельный цвет для всей группы (один цвет на всех)
         seed_base = "".join([
@@ -308,7 +323,7 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
                             color_tasks.append(a1)
 
         elif specific_row:
-            # Старая логика для specific_row (ручное размещение)
+            # Ручное размещение: размещаем только обычных, INF/CHD вставляем ниже
             pkg_row = find_package_row(all_values, target_pkg)
             if pkg_row is not None:
                 for r in range(pkg_row, min(pkg_row + 15, len(all_values))):
@@ -316,13 +331,13 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
                     if cols: break
             if not cols: return []
 
-            for i, person_passport in enumerate(group_data):
+            for i, person_passport in enumerate(regular_pilgrims):
                 row_idx = specific_row + i
                 saved_rows.append(row_idx)
                 full_data = {**common_data, **person_passport}
                 _prepare_updates(updates, price_tasks, row_idx, cols, full_data)
                 # Планируем окраску имени/фамилии для группы (если в группе > 1 человека, включая INF)
-                if len(group_data) > 1:
+                if len(all_pilgrims) > 1:
                     for key in ("last_name", "first_name"):
                         if key in cols:
                             a1 = row_col_to_a1(row_idx, cols[key] + 1)
@@ -351,9 +366,10 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
                 except: pass
 
         # 🔥 ОБРАБОТКА INF ПАЛОМНИКОВ - вставка строк под родителями
+        parent_row_override = specific_row if specific_row and len(regular_pilgrims) == 0 else None
         final_rows = await process_inf_passengers(
             ws, all_values, all_pilgrims, regular_pilgrims, saved_rows,
-            cols, common_data, group_color
+            cols, common_data, group_color, parent_row_override=parent_row_override
         )
 
         return final_rows
