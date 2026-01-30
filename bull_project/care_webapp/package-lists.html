@@ -237,6 +237,24 @@
             margin-left: 4px;
         }
 
+        .passport-warning {
+            background: var(--danger-bg);
+            color: var(--danger-text);
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 2px solid var(--danger-text);
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-align: center;
+            animation: pulse-warning 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+
         .details-btn {
             width: 100%;
             padding: 12px;
@@ -344,10 +362,10 @@
             flex: 1;
             min-width: 140px;
             padding: 10px 12px;
-            border: 1px solid var(--border-color);
+            border: 1px solid var(--accent-light) !important;
             border-radius: 12px;
-            background: linear-gradient(135deg, #FFFFFF 0%, var(--bg-secondary) 100%);
-            color: var(--accent-dark);
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%) !important;
+            color: white !important;
             font-size: 13px;
             font-weight: 700;
             cursor: pointer;
@@ -358,8 +376,8 @@
         .download-passport-compact:hover:not(:disabled) {
             transform: translateY(-1px);
             box-shadow: var(--shadow-medium);
-            border-color: var(--accent-light);
-            background: var(--bg-secondary);
+            border-color: var(--accent-brown) !important;
+            background: linear-gradient(135deg, #b99a88 0%, var(--accent-brown) 100%) !important;
         }
 
         .download-passport-compact:active:not(:disabled) {
@@ -376,9 +394,9 @@
             flex: 1;
             min-width: 140px;
             padding: 10px 12px;
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            color: white;
-            border: 1px solid #4CAF50;
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%) !important;
+            color: white !important;
+            border: 1px solid var(--accent-light) !important;
             border-radius: 12px;
             font-size: 13px;
             font-weight: 700;
@@ -390,7 +408,8 @@
         .download-passport-original:hover:not(:disabled) {
             transform: translateY(-1px);
             box-shadow: var(--shadow-medium);
-            background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+            border-color: var(--accent-brown) !important;
+            background: linear-gradient(135deg, #b99a88 0%, var(--accent-brown) 100%) !important;
         }
 
         .download-passport-original:active:not(:disabled) {
@@ -401,6 +420,24 @@
             opacity: 0.55;
             cursor: not-allowed;
             transform: none;
+        }
+
+        /* Надпись для старых записей */
+        .old-passport-notice {
+            flex: 1;
+            min-width: 140px;
+            padding: 10px 12px;
+            background: linear-gradient(135deg, #FFF3CD 0%, #FFE8A0 100%);
+            color: #856404;
+            border: 1px solid #FFD700;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .no-data {
@@ -773,21 +810,30 @@
                         <div class="booking-detail">📄 Строка листа: <strong>${sheetRow}</strong></div>
                     </div>
                     <div class="passport-buttons">
-                        <button
-                            class="download-passport-compact"
-                            onclick="downloadPassportPDF(event, ${booking.id})"
-                            ${!passportImage ? 'disabled title="Паспорт не загружен"' : 'title="Компактный PDF ≤1MB для архива"'}
-                        >
-                            📄 Компактный PDF
-                        </button>
-                        <button
-                            class="download-passport-original"
-                            onclick="downloadPassportOriginal(event, ${booking.id})"
-                            ${!passportImage ? 'disabled title="Паспорт не загружен"' : 'title="Оригинальный файл без сжатия для OCR"'}
-                        >
-                            🔍 Оригинал для OCR
-                        </button>
+                        ${booking.id > 1331 ? `
+                            <button
+                                class="download-passport-original"
+                                onclick="downloadPassportOriginal(event, ${booking.id})"
+                                ${!passportImage ? 'disabled title="Паспорт не загружен"' : 'title="Оригинальный файл без сжатия для OCR"'}
+                            >
+                                Скачать оригинал PDF паспорта
+                            </button>
+                        ` : `
+                            <button
+                                class="download-passport-compact"
+                                onclick="downloadPassportPDF(event, ${booking.id})"
+                                ${!passportImage ? 'disabled title="Паспорт не загружен"' : 'title="Компактный PDF ≤1MB для архива"'}
+                            >
+                                Скачать паспорт PDF
+                            </button>
+                            
+                        `}
                     </div>
+                    ${booking.id <= 1331 ? `
+                        <div class="passport-warning">
+                            ℹ️ Оригинал паспорта отсутствует. Данный паспорт не поддерживает visa bot.
+                        </div>
+                    ` : ''}
                     <button class="details-btn" onclick="toggleDetails(${index})">📋 Подробнее</button>
                     <div class="booking-details-full" id="details-${index}">
                         <div class="details-section">

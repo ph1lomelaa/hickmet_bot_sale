@@ -27,7 +27,9 @@ from bull_project.bull_bot.core.google_sheets.writer import save_group_booking
 from bull_project.bull_bot.core.websocket_manager import (
     notify_admins_about_request,
     notify_admins_about_new_booking,
+    notify_phone_subscribers,
 )
+from bull_project.bull_bot.core.webhook_notifier import notify_new_booking
 
 
 router = APIRouter()
@@ -300,6 +302,41 @@ async def api_bookings_submit(payload: BookingSubmitIn):
         except Exception as notify_error:
             # Не прерываем выполнение если уведомление не отправилось
             print(f"⚠️ Ошибка отправки уведомления админам (не критично): {notify_error}")
+
+        # 9. 📱 Отправляем WebSocket уведомления о новых телефонах
+        for i, record in enumerate(db_records):
+            phone = record.get("client_phone", "-")
+            if phone and phone != "-":
+                await notify_phone_subscribers(
+                    phone=phone,
+                    booking_id=db_ids[i] if i < len(db_ids) else 0,
+                    guest_name=f"{record.get('guest_first_name', '')} {record.get('guest_last_name', '')}",
+                    package_name=record.get("package_name", "-"),
+                    group_size=len(db_records),
+                    group_members=record.get("group_members", []),
+                    room_type=record.get("room_type", "-"),
+                    manager_name=record.get("manager_name_text", "-"),
+                    departure_city=record.get("departure_city", "-"),
+                    comment=record.get("comment", "-"),
+                    price=record.get("price", "0"),
+                    visa_status=record.get("visa_status", "-"),
+                    avia=record.get("avia", "-"),
+                    gender=record.get("gender", "M")
+                )
+
+        # 10. 🔔 Отправляем webhook уведомление о новой брони
+        try:
+            await notify_new_booking(
+                bookings_data=db_records,
+                package_name=package_name,
+                sheet_name=sheet_name,
+                table_id=payload.table_id,
+                db_ids=db_ids,
+                saved_rows=saved_rows
+            )
+        except Exception as webhook_error:
+            # Не прерываем выполнение если webhook не отправился
+            print(f"⚠️ Ошибка отправки webhook (не критично): {webhook_error}")
 
         return {"ok": True, "db_ids": db_ids, "saved_rows": saved_rows}
 

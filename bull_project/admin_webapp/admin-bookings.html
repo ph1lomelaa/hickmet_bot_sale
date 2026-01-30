@@ -314,7 +314,7 @@
 
         .download-pdf-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+            box-shadow: 0 4px 12px rgba(69, 160, 72, 0.3);
         }
 
         .download-pdf-btn:active {
@@ -333,9 +333,9 @@
             flex: 1;
             min-width: 140px;
             padding: 10px 16px;
-            background: linear-gradient(135deg, #FFFFFF 0%, var(--bg-secondary) 100%);
-            color: var(--accent-dark);
-            border: 1px solid var(--border-color);
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%) !important;
+            color: white !important;
+            border: 1px solid var(--accent-light) !important;
             border-radius: 12px;
             font-size: 13px;
             font-weight: 700;
@@ -348,8 +348,8 @@
         .download-passport-compact:hover:not(:disabled) {
             transform: translateY(-1px);
             box-shadow: var(--shadow-medium);
-            border-color: var(--accent-light);
-            background: var(--bg-secondary);
+            border-color: var(--accent-brown) !important;
+            background: linear-gradient(135deg, #b99a88 0%, var(--accent-brown) 100%) !important;
         }
 
         .download-passport-compact:active:not(:disabled) {
@@ -366,9 +366,9 @@
             flex: 1;
             min-width: 140px;
             padding: 10px 16px;
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            color: white;
-            border: 1px solid #4CAF50;
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%) !important;
+            color: white !important;
+            border: 1px solid var(--accent-light) !important;
             border-radius: 12px;
             font-size: 13px;
             font-weight: 700;
@@ -381,14 +381,31 @@
         .download-passport-original:hover:not(:disabled) {
             transform: translateY(-1px);
             box-shadow: var(--shadow-medium);
-            background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+            border-color: var(--accent-brown) !important;
+            background: linear-gradient(135deg, #b99a88 0%, var(--accent-brown) 100%) !important;
         }
 
         .download-passport-original:active:not(:disabled) {
             transform: translateY(0);
         }
 
-        .download-passport-original:disabled {
+        /* Надпись для старых записей */
+        .old-passport-notice {
+            flex: 1;
+            min-width: 140px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #FFF3CD 0%, #FFE8A0 100%);
+            color: #856404;
+            border: 1px solid #FFD700;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }        .download-passport-original:disabled {
             opacity: 0.55;
             cursor: not-allowed;
             transform: none;
@@ -759,21 +776,30 @@
                                 onerror="this.style.display='none'"
                             >
                             <div class="passport-buttons">
-                                <button
-                                    class="download-passport-compact"
-                                    onclick="downloadPassportPDF(event, ${booking.id})"
-                                    title="Компактный PDF ≤1MB для архива"
-                                >
-                                    📄 Компактный PDF
-                                </button>
-                                <button
-                                    class="download-passport-original"
-                                    onclick="downloadPassportOriginal(event, ${booking.id})"
-                                    title="Оригинальный файл без сжатия для OCR"
-                                >
-                                    🔍 Оригинал для OCR
-                                </button>
+                                ${booking.id > 1331 ? `
+                                    <button
+                                        class="download-passport-original"
+                                        onclick="downloadPassportOriginal(event, ${booking.id})"
+                                        title="Оригинальный файл без сжатия для OCR"
+                                    >
+                                        Скачать оригинал PDF паспорта
+                                    </button>
+                                ` : `
+                                    <button
+                                        class="download-passport-compact"
+                                        onclick="downloadPassportPDF(event, ${booking.id})"
+                                        title="Компактный PDF ≤1MB для архива"
+                                    >
+                                         Скачать паспорт PDF
+                                    </button>
+                                    
+                                `}
                             </div>
+                            ${booking.id <= 1331 ? `
+                                <div class="passport-warning" style="margin-top: 12px; background: #FFE8CC; border-color: #FFB800;">
+                                    ℹ️ Оригинал паспорта отсутствует. Данный паспорт не поддерживает visa bot.
+                                </div>
+                            ` : ''}
                         </div>
                     `;
                 }

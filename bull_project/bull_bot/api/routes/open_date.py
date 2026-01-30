@@ -20,7 +20,8 @@ router = APIRouter(prefix="/api/open-date", tags=["open-date"])
 
 # === MODELS ===
 
-class PilgrimData(BaseModel):
+class OpenDatePilgrimData(BaseModel):
+    """Данные паломника для OPEN DATE (требуются обязательные поля)"""
     last_name: str
     first_name: str
     gender: str
@@ -31,7 +32,7 @@ class PilgrimData(BaseModel):
 
 
 class OpenDateSubmitRequest(BaseModel):
-    pilgrims: List[PilgrimData]
+    pilgrims: List[OpenDatePilgrimData]
     room_type: Optional[str] = None
     meal_type: Optional[str] = None
     price: Optional[str] = None
