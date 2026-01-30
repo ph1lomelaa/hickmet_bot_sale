@@ -810,30 +810,45 @@
                         <div class="booking-detail">📄 Строка листа: <strong>${sheetRow}</strong></div>
                     </div>
                     <div class="passport-buttons">
-                        ${booking.id > 1331 ? `
-                            <button
-                                class="download-passport-original"
-                                onclick="downloadPassportOriginal(event, ${booking.id})"
-                                ${!passportImage ? 'disabled title="Паспорт не загружен"' : 'title="Оригинальный файл без сжатия для OCR"'}
-                            >
-                                Скачать оригинал PDF паспорта
-                            </button>
-                        ` : `
-                            <button
-                                class="download-passport-compact"
-                                onclick="downloadPassportPDF(event, ${booking.id})"
-                                ${!passportImage ? 'disabled title="Паспорт не загружен"' : 'title="Компактный PDF ≤1MB для архива"'}
-                            >
-                                Скачать паспорт PDF
-                            </button>
-                            
-                        `}
+                        ${(() => {
+                            const cutoffDate = new Date('2026-01-29T00:00:00');
+                            const updatedAt = booking.updated_at ? new Date(booking.updated_at) : null;
+                            const hasOriginal = booking.id > 1331 || (updatedAt && updatedAt >= cutoffDate);
+
+                            if (hasOriginal) {
+                                return `
+                                    <button
+                                        class="download-passport-original"
+                                        onclick="downloadPassportOriginal(event, ${booking.id})"
+                                        ${!passportImage ? 'disabled title="Паспорт не загружен"' : 'title="Оригинальный файл без сжатия для OCR"'}
+                                    >
+                                        Скачать оригинал PDF паспорта
+                                    </button>
+                                `;
+                            } else {
+                                return `
+                                    <button
+                                        class="download-passport-compact"
+                                        onclick="downloadPassportPDF(event, ${booking.id})"
+                                        ${!passportImage ? 'disabled title="Паспорт не загружен"' : 'title="Компактный PDF ≤1MB для архива"'}
+                                    >
+                                        Скачать паспорт PDF
+                                    </button>
+                                `;
+                            }
+                        })()}
                     </div>
-                    ${booking.id <= 1331 ? `
-                        <div class="passport-warning">
-                            ℹ️ Оригинал паспорта отсутствует. Данный паспорт не поддерживает visa bot.
-                        </div>
-                    ` : ''}
+                    ${(() => {
+                        if (booking.id > 1331) return '';
+                        const cutoffDate = new Date('2026-01-29T00:00:00');
+                        const updatedAt = booking.updated_at ? new Date(booking.updated_at) : null;
+                        if (updatedAt && updatedAt >= cutoffDate) return '';
+                        return `
+                            <div class="passport-warning">
+                                ℹ️ Оригинал паспорта отсутствует. Данный паспорт не поддерживает visa bot.
+                            </div>
+                        `;
+                    })()}
                     <button class="details-btn" onclick="toggleDetails(${index})">📋 Подробнее</button>
                     <div class="booking-details-full" id="details-${index}">
                         <div class="details-section">

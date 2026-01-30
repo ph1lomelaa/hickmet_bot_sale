@@ -222,6 +222,7 @@ async def get_bookings_in_package_for_care(
                 "passport_image_path": passport_path or None,
                 "sheet_row_number": b.sheet_row_number,
                 "created_at": b.created_at.isoformat() if b.created_at else None,
+                "updated_at": b.updated_at.isoformat() if b.updated_at else None,
                 "status": b.status
             })
 

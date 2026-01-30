@@ -190,6 +190,7 @@ async def get_all_bookings(
                 "status": b.status,
                 "manager_name": b.manager_name_text or "-",
                 "created_at": b.created_at.isoformat() if b.created_at else None,
+                "updated_at": b.updated_at.isoformat() if b.updated_at else None,
                 "comment": b.comment or "",
                 "group_members": group_members
             })
