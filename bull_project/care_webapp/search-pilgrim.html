@@ -410,6 +410,39 @@
             justify-content: center;
         }
 
+        /* Кнопка загрузки паспорта */
+        .upload-passport-btn {
+            flex: 1;
+            min-width: 140px;
+            padding: 10px 12px;
+            background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%) !important;
+            color: white !important;
+            border: 1px solid #4CAF50 !important;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .upload-passport-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-medium);
+            background: linear-gradient(135deg, #66BB6A 0%, #4CAF50 100%) !important;
+        }
+
+        .upload-passport-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Скрытый input для файла */
+        .hidden-file-input {
+            display: none;
+        }
+
         /* Перестраховка: если контейнеры случайно продублируются, прячем дубликаты */
         body > .header + .header,
         body > .search-container + .search-container {
@@ -453,6 +486,13 @@
     <script>
         const API_URL = window.BULL_API_URL;
         const tg = window.Telegram.WebApp;
+
+        // ID пользователя, которому разрешена загрузка паспортов
+        const ALLOWED_UPLOAD_USER_ID = 489877724;
+        const currentUserId = tg.initDataUnsafe?.user?.id;
+        const canUploadPassport = currentUserId === ALLOWED_UPLOAD_USER_ID;
+
+        console.log(`👤 User ID: ${currentUserId}, Can upload passport: ${canUploadPassport}`);
 
         tg.ready();
         tg.expand();
@@ -603,8 +643,24 @@
                             >
                                 Скачать паспорт PDF
                             </button>
-                            
+
                         `}
+                        ${canUploadPassport ? `
+                            <button
+                                class="upload-passport-btn"
+                                onclick="triggerPassportUpload(${booking.id})"
+                                title="Загрузить или заменить паспорт"
+                            >
+                                📤 Загрузить паспорт
+                            </button>
+                            <input
+                                type="file"
+                                id="passport-upload-${booking.id}"
+                                class="hidden-file-input"
+                                accept="image/*,.pdf"
+                                onchange="uploadPassport(event, ${booking.id})"
+                            >
+                        ` : ''}
                     </div>
                     ${booking.id <= 1331 ? `
                         <div class="passport-warning" style="margin-top: 12px; background: #FFE8CC; border-color: #FFB800;">
@@ -746,6 +802,124 @@
             setTimeout(() => {
                 errorDiv.classList.add('hidden');
             }, 5000);
+        }
+
+        // === ЗАГРУЗКА ПАСПОРТА ===
+
+        function triggerPassportUpload(bookingId) {
+            const input = document.getElementById(`passport-upload-${bookingId}`);
+            if (input) {
+                input.click();
+            }
+        }
+
+        async function uploadPassport(event, bookingId) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            console.log(`📤 Загрузка паспорта для booking ${bookingId}:`, file.name);
+
+            // Показываем индикатор загрузки
+            const btn = event.target.previousElementSibling;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '⏳ Загрузка...';
+            btn.disabled = true;
+
+            try {
+                // 1. Загружаем файл на сервер
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const uploadResponse = await fetch(`${API_URL}/api/passports/upload`, {
+                    method: 'POST',
+                    headers: {
+                        "ngrok-skip-browser-warning": "1"
+                    },
+                    body: formData
+                });
+
+                const uploadData = await uploadResponse.json();
+                console.log('📥 Ответ загрузки:', uploadData);
+
+                if (!uploadData.ok) {
+                    throw new Error(uploadData.error || 'Ошибка загрузки файла');
+                }
+
+                // 2. Обновляем путь к паспорту в БД
+                const passportPath = uploadData.path; // Относительный путь
+                console.log(`📝 Обновляем путь паспорта: ${passportPath}`);
+
+                const updateResponse = await fetch(`${API_URL}/api/bookings/${bookingId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        "ngrok-skip-browser-warning": "1"
+                    },
+                    body: JSON.stringify({
+                        pilgrims: [{
+                            passport_image_path: passportPath
+                        }]
+                    })
+                });
+
+                const updateData = await updateResponse.json();
+                console.log('📥 Ответ обновления:', updateData);
+
+                if (!updateData.ok) {
+                    throw new Error(updateData.error || 'Ошибка обновления брони');
+                }
+
+                // 3. Успех!
+                btn.innerHTML = '✅ Загружено!';
+                btn.style.background = 'linear-gradient(135deg, #4CAF50 0%, #388E3C 100%)';
+
+                // Обновляем изображение паспорта на странице
+                const card = btn.closest('.booking-card');
+                const passportImg = card.querySelector('.passport-image');
+                if (passportImg) {
+                    passportImg.src = `${API_URL}/api/care/passport-photo/${bookingId}?t=${new Date().getTime()}`;
+                } else {
+                    // Если изображения не было, добавляем его
+                    const container = card.querySelector('.passport-container');
+                    if (!container) {
+                        const header = card.querySelector('.booking-header');
+                        const newContainer = document.createElement('div');
+                        newContainer.className = 'passport-container';
+                        newContainer.innerHTML = `
+                            <img
+                                src="${API_URL}/api/care/passport-photo/${bookingId}?t=${new Date().getTime()}"
+                                alt="Паспорт"
+                                class="passport-image"
+                                onerror="this.style.display='none';"
+                            >
+                        `;
+                        header.after(newContainer);
+                    }
+                }
+
+                // Через 2 секунды возвращаем кнопку
+                setTimeout(() => {
+                    btn.innerHTML = '📤 Загрузить паспорт';
+                    btn.disabled = false;
+                    btn.style.background = '';
+                }, 2000);
+
+            } catch (error) {
+                console.error('❌ Ошибка загрузки паспорта:', error);
+                btn.innerHTML = '❌ Ошибка';
+                btn.style.background = 'linear-gradient(135deg, #f44336 0%, #c62828 100%)';
+
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    btn.style.background = '';
+                }, 2000);
+
+                alert('Ошибка: ' + error.message);
+            }
+
+            // Очищаем input для повторной загрузки
+            event.target.value = '';
         }
     </script>
 </body>
