@@ -684,8 +684,15 @@
                         ` : ''}
                     </div>
                     ${(() => {
-                        // Показываем предупреждение только если ID <= 1331 И паспорт не обновлялся после 29 января
+                        // Показываем предупреждение только если:
+                        // - ID <= 1331 И
+                        // - паспорт не обновлялся после 29 января И
+                        // - паспорт есть И
+                        // - паспорт НЕ в формате .jpeg/.jpg (jpeg = оригинал)
                         if (booking.id > 1331) return '';
+                        if (!booking.passport_image_path) return '';
+                        const passportPath = booking.passport_image_path.toLowerCase();
+                        if (passportPath.endsWith('.jpeg') || passportPath.endsWith('.jpg')) return '';
                         const cutoffDate = new Date('2026-01-29T00:00:00');
                         const updatedAt = booking.updated_at ? new Date(booking.updated_at) : null;
                         if (updatedAt && updatedAt >= cutoffDate) return '';

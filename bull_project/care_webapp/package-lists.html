@@ -839,7 +839,11 @@
                         })()}
                     </div>
                     ${(() => {
+                        // Не показываем если: нет паспорта, ID > 1331, или паспорт в формате jpeg
                         if (booking.id > 1331) return '';
+                        if (!passportImage) return '';
+                        const path = passportImage.toLowerCase();
+                        if (path.endsWith('.jpeg') || path.endsWith('.jpg')) return '';
                         const cutoffDate = new Date('2026-01-29T00:00:00');
                         const updatedAt = booking.updated_at ? new Date(booking.updated_at) : null;
                         if (updatedAt && updatedAt >= cutoffDate) return '';
