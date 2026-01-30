@@ -320,6 +320,8 @@ async def update_booking_fields(booking_id: int, fields: dict):
                     if key == "passport_image_path":
                         value = normalize_passport_path_for_storage(value)
                     setattr(b, key, value)
+            # Явно обновляем updated_at при любом изменении
+            b.updated_at = datetime.now()
             await session.commit()
 
 async def update_booking_passport_path(booking_id: int, passport_path: str):
@@ -328,6 +330,7 @@ async def update_booking_passport_path(booking_id: int, passport_path: str):
         b = await session.get(Booking, booking_id)
         if b:
             b.passport_image_path = normalize_passport_path_for_storage(passport_path)
+            b.updated_at = datetime.now()
             await session.commit()
 
 # === ИСТОРИЯ И ПОИСК ===
