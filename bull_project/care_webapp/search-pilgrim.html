@@ -640,7 +640,7 @@
                     <div class="passport-buttons">
                         ${(() => {
                             // Показываем "Скачать оригинал" если ID > 1331 ИЛИ паспорт обновлялся после 29 января
-                            const cutoffDate = new Date('2025-01-29T00:00:00');
+                            const cutoffDate = new Date('2026-01-29T00:00:00');
                             const updatedAt = booking.updated_at ? new Date(booking.updated_at) : null;
                             const hasOriginal = booking.id > 1331 || (updatedAt && updatedAt >= cutoffDate);
 
@@ -686,7 +686,7 @@
                     ${(() => {
                         // Показываем предупреждение только если ID <= 1331 И паспорт не обновлялся после 29 января
                         if (booking.id > 1331) return '';
-                        const cutoffDate = new Date('2025-01-29T00:00:00');
+                        const cutoffDate = new Date('2026-01-29T00:00:00');
                         const updatedAt = booking.updated_at ? new Date(booking.updated_at) : null;
                         if (updatedAt && updatedAt >= cutoffDate) return '';
                         return `
