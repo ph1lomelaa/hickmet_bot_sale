@@ -117,6 +117,7 @@ async def care_search_tourist(query: str = Query(..., min_length=1)):
                 "source": booking.source or "-",
                 "passport_image_path": booking.passport_image_path or fallback_passport or None,
                 "created_at": booking.created_at.isoformat() if booking.created_at else None,
+                "updated_at": booking.updated_at.isoformat() if booking.updated_at else None,
                 "status": booking.status
             })
             print(
