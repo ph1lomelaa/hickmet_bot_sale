@@ -29,7 +29,14 @@ from bull_project.bull_bot.core.websocket_manager import (
     notify_admins_about_new_booking,
     notify_phone_subscribers,
 )
-from bull_project.bull_bot.core.webhook_notifier import notify_new_booking
+
+# Опциональный импорт webhook (требует httpx)
+try:
+    from bull_project.bull_bot.core.webhook_notifier import notify_new_booking
+    WEBHOOK_ENABLED = True
+except ImportError:
+    WEBHOOK_ENABLED = False
+    notify_new_booking = None  # type: ignore
 
 
 router = APIRouter()
@@ -325,18 +332,19 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 )
 
         # 10. 🔔 Отправляем webhook уведомление о новой брони
-        try:
-            await notify_new_booking(
-                bookings_data=db_records,
-                package_name=package_name,
-                sheet_name=sheet_name,
-                table_id=payload.table_id,
-                db_ids=db_ids,
-                saved_rows=saved_rows
-            )
-        except Exception as webhook_error:
-            # Не прерываем выполнение если webhook не отправился
-            print(f"⚠️ Ошибка отправки webhook (не критично): {webhook_error}")
+        if WEBHOOK_ENABLED and notify_new_booking:
+            try:
+                await notify_new_booking(
+                    bookings_data=db_records,
+                    package_name=package_name,
+                    sheet_name=sheet_name,
+                    table_id=payload.table_id,
+                    db_ids=db_ids,
+                    saved_rows=saved_rows
+                )
+            except Exception as webhook_error:
+                # Не прерываем выполнение если webhook не отправился
+                print(f"⚠️ Ошибка отправки webhook (не критично): {webhook_error}")
 
         return {"ok": True, "db_ids": db_ids, "saved_rows": saved_rows}
 
