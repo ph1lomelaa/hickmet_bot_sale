@@ -488,12 +488,22 @@
         const tg = window.Telegram.WebApp;
 
         // ID пользователя, которому разрешена загрузка паспортов
-        const ALLOWED_UPLOAD_USER_ID = 489877724;
-        const currentUserId = tg.initDataUnsafe?.user?.id;
-        // Используем == для сравнения (ID может быть строкой или числом)
-        const canUploadPassport = currentUserId == ALLOWED_UPLOAD_USER_ID;
+        const ALLOWED_UPLOAD_USER_IDS = [489877724, 777296921];
 
-        console.log(`👤 User ID: ${currentUserId} (type: ${typeof currentUserId}), Can upload passport: ${canUploadPassport}`);
+        // Пробуем получить user_id из разных источников
+        let currentUserId = tg.initDataUnsafe?.user?.id;
+
+        // Если initDataUnsafe пустой, пробуем получить из URL
+        if (!currentUserId) {
+            const urlParams = new URLSearchParams(window.location.search);
+            currentUserId = urlParams.get('user_id');
+        }
+
+        // Проверяем доступ
+        const canUploadPassport = ALLOWED_UPLOAD_USER_IDS.some(id => id == currentUserId);
+
+        console.log(`👤 User ID: ${currentUserId} (type: ${typeof currentUserId}), Allowed IDs: ${ALLOWED_UPLOAD_USER_IDS}, Can upload: ${canUploadPassport}`);
+        console.log('📦 initDataUnsafe:', JSON.stringify(tg.initDataUnsafe));
 
         tg.ready();
         tg.expand();
