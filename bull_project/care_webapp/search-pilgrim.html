@@ -490,9 +490,10 @@
         // ID пользователя, которому разрешена загрузка паспортов
         const ALLOWED_UPLOAD_USER_ID = 489877724;
         const currentUserId = tg.initDataUnsafe?.user?.id;
-        const canUploadPassport = currentUserId === ALLOWED_UPLOAD_USER_ID;
+        // Используем == для сравнения (ID может быть строкой или числом)
+        const canUploadPassport = currentUserId == ALLOWED_UPLOAD_USER_ID;
 
-        console.log(`👤 User ID: ${currentUserId}, Can upload passport: ${canUploadPassport}`);
+        console.log(`👤 User ID: ${currentUserId} (type: ${typeof currentUserId}), Can upload passport: ${canUploadPassport}`);
 
         tg.ready();
         tg.expand();
