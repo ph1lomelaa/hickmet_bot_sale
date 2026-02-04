@@ -730,6 +730,44 @@ async def get_full_analytics(start_date, end_date):
         )
         daily_dynamics = (await session.execute(daily_stmt)).all()
 
+        # 6. Полный список проданных пакетов с разбивкой по менеджерам
+        package_mgr_stmt = (
+            select(
+                Booking.package_name,
+                Booking.manager_name_text,
+                func.count(Booking.id).label('cnt')
+            )
+            .where(
+                Booking.status.notin_(('cancelled', 'rescheduled')),
+                func.date(Booking.created_at) >= start_date,
+                func.date(Booking.created_at) <= end_date
+            )
+            .group_by(Booking.package_name, Booking.manager_name_text)
+            .order_by(desc('cnt'))
+        )
+        package_mgr_rows = (await session.execute(package_mgr_stmt)).all()
+
+        package_details_map = {}
+        for pkg_name, mgr_name, cnt in package_mgr_rows:
+            key = pkg_name or "-"
+            if key not in package_details_map:
+                package_details_map[key] = {
+                    "package_name": key,
+                    "total": 0,
+                    "managers": []
+                }
+            package_details_map[key]["total"] += cnt or 0
+            package_details_map[key]["managers"].append({
+                "manager_name": (mgr_name or "-"),
+                "count": cnt or 0
+            })
+
+        package_sales_full = sorted(
+            package_details_map.values(),
+            key=lambda x: x["total"],
+            reverse=True
+        )
+
         return {
             "total_bookings": total_bookings,
             "total_cancelled": total_cancelled,
@@ -737,7 +775,8 @@ async def get_full_analytics(start_date, end_date):
             "top_packages": [(name, cnt) for name, cnt in top_packages],
             "managers_rating": [(name, total, cancelled or 0) for name, total, cancelled in managers_rating],
             "popular_rooms": [(room, cnt) for room, cnt in popular_rooms],
-            "daily_dynamics": [(str(date), cnt) for date, cnt in daily_dynamics]
+            "daily_dynamics": [(str(date), cnt) for date, cnt in daily_dynamics],
+            "package_sales_full": package_sales_full,
         }
 
 async def get_manager_detailed_stats(manager_id: int, start_date, end_date):
