@@ -7,7 +7,6 @@ from bull_project.bull_bot.core.google_sheets.writer import (
     write_cancelled_booking_red,
     write_rescheduled_booking_red,
     save_group_booking,
-    find_pilgrim_in_package,
 )
 from bull_project.bull_bot.database.requests import (
     get_pending_requests,
@@ -24,6 +23,20 @@ from bull_project.bull_bot.database.requests import (
 
 
 router = APIRouter()
+
+
+async def _find_pilgrim_in_package_safe(table_id, sheet_name, package_name, guest_name):
+    """
+    Безопасный wrapper: не валим старт API, даже если функция не экспортируется из writer.
+    """
+    try:
+        from bull_project.bull_bot.core.google_sheets import writer as _writer
+        fn = getattr(_writer, "find_pilgrim_in_package", None)
+        if fn:
+            return await fn(table_id, sheet_name, package_name, guest_name)
+    except Exception:
+        pass
+    return []
 
 
 @router.get("/api/admin/requests")
@@ -93,6 +106,16 @@ async def admin_requests_history(
         result = []
         for r_type in types:
             rows = await get_approval_history(r_type, date_from=dt_from, date_to=dt_to, limit=300)
+            # Фолбэк: если обработанных нет, показываем и pending за период,
+            # чтобы в "Истории" админ видел фактический поток заявок.
+            if not rows:
+                pending_rows = await get_pending_requests()
+                rows = [
+                    r for r in pending_rows
+                    if r.request_type == r_type
+                    and r.created_at
+                    and dt_from <= r.created_at <= dt_to
+                ]
             for req in rows:
                 booking = await get_booking_by_id(req.booking_id)
                 if not booking:
@@ -148,7 +171,7 @@ async def admin_request_approve(req_id: int):
                     if not sheets_cleared:
                         print(f"⚠️ Не удалось очистить бронь #{booking.id} в таблице (возможно несовпадение имени)")
                         # 🔍 Ищем паломника по всему пакету
-                        matches = await find_pilgrim_in_package(
+                        matches = await _find_pilgrim_in_package_safe(
                             booking.table_id,
                             booking.sheet_name,
                             booking.package_name,
@@ -309,7 +332,7 @@ async def admin_request_approve(req_id: int):
                         else:
                             # 🔍 Ищем паломника по пакету
                             print(f"⚠️ Имя не совпадает, ищем по пакету...")
-                            matches = await find_pilgrim_in_package(
+                            matches = await _find_pilgrim_in_package_safe(
                                 old_booking.table_id,
                                 old_booking.sheet_name,
                                 old_booking.package_name,

@@ -21,11 +21,21 @@ from bull_project.bull_bot.database.setup import engine
 from bull_project.bull_bot.core.google_sheets.writer import (
     clear_booking_in_sheets, write_cancelled_booking_red,
     save_group_booking, write_rescheduled_booking_red,
-    find_pilgrim_in_package
 )
 from bull_project.bull_bot.database.requests import mark_booking_rescheduled
 
 router = Router()
+
+
+async def _find_pilgrim_in_package_safe(table_id, sheet_name, package_name, guest_name):
+    try:
+        from bull_project.bull_bot.core.google_sheets import writer as _writer
+        fn = getattr(_writer, "find_pilgrim_in_package", None)
+        if fn:
+            return await fn(table_id, sheet_name, package_name, guest_name)
+    except Exception:
+        pass
+    return []
 
 # TODO: Разместите файлы на GitHub Pages или другом хостинге
 ADMIN_PANEL_URL = "https://ph1lomelaa.github.io/book/admin-panel.html"
@@ -379,7 +389,7 @@ async def admin_cancel_ok(call: CallbackQuery):
         # Ищем паломника по всему пакету
         matches = []
         if booking.table_id and booking.sheet_name and booking.package_name:
-            matches = await find_pilgrim_in_package(
+            matches = await _find_pilgrim_in_package_safe(
                 booking.table_id,
                 booking.sheet_name,
                 booking.package_name,
@@ -809,7 +819,7 @@ async def admin_resched_ok(call: CallbackQuery):
                 else:
                     # 🔍 Ищем паломника по всему пакету
                     print(f"⚠️ Имя на строке {ob.sheet_row_number} не совпадает, ищем по пакету...")
-                    matches = await find_pilgrim_in_package(
+                    matches = await _find_pilgrim_in_package_safe(
                         ob.table_id,
                         ob.sheet_name,
                         ob.package_name,

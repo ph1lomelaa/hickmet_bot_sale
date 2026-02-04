@@ -580,6 +580,88 @@ async def clear_booking_in_sheets(sheet_id, sheet_name, row_number, package_name
         print(f"❌ Ошибка очистки брони: {e}")
         return False
 
+
+async def find_pilgrim_in_package(sheet_id, sheet_name, package_name, guest_name):
+    """
+    Ищет паломника по имени во всём пакете.
+
+    Args:
+        sheet_id: ID таблицы Google Sheets
+        sheet_name: Название листа
+        package_name: Название пакета
+        guest_name: Имя для поиска (формат: "Фамилия Имя")
+
+    Returns:
+        list: Список найденных совпадений [(row_number, actual_name), ...]
+    """
+    from bull_project.bull_bot.core.google_sheets.allocator import get_package_block
+
+    client = get_google_client()
+    if not client:
+        print("❌ Google client не инициализирован")
+        return []
+
+    try:
+        ss = client.open_by_key(sheet_id)
+        ws = get_worksheet_by_title(ss, sheet_name)
+        all_values = ws.get_all_values()
+
+        # Находим блок пакета
+        start_row, end_row, cols = get_package_block(all_values, package_name)
+        if not cols or start_row is None:
+            print(f"❌ Не найден блок пакета {package_name}")
+            return []
+
+        # Нормализуем искомое имя
+        expected_normalized = " ".join(guest_name.strip().split()).lower()
+        print(f"🔍 Ищем паломника '{guest_name}' в пакете {package_name} (строки {start_row+1}-{end_row+1})")
+
+        matches = []
+
+        # Ищем по всем строкам пакета
+        for row_idx in range(start_row, end_row + 1):
+            if row_idx >= len(all_values):
+                break
+
+            row = all_values[row_idx]
+
+            # Получаем имя из этой строки
+            actual_last_name = ""
+            actual_first_name = ""
+
+            if 'last_name' in cols and cols['last_name'] < len(row):
+                actual_last_name = row[cols['last_name']].strip()
+
+            if 'first_name' in cols and cols['first_name'] < len(row):
+                actual_first_name = row[cols['first_name']].strip()
+
+            # Пропускаем пустые строки
+            if not actual_last_name and not actual_first_name:
+                continue
+
+            actual_name = f"{actual_last_name} {actual_first_name}".strip()
+            actual_normalized = " ".join(actual_name.split()).lower()
+
+            # Проверяем совпадение
+            if actual_normalized == expected_normalized:
+                row_number = row_idx + 1  # +1 потому что Google Sheets считает с 1
+                print(f"   ✅ Найдено точное совпадение в строке {row_number}: '{actual_name}'")
+                matches.append((row_number, actual_name))
+
+        if not matches:
+            print(f"   ❌ Паломник '{guest_name}' не найден в пакете")
+        else:
+            print(f"   📋 Всего найдено совпадений: {len(matches)}")
+
+        return matches
+
+    except Exception as e:
+        print(f"❌ Ошибка поиска паломника: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
 def find_last_content_row(all_values):
     """Находит последнюю строку с содержимым на листе"""
     for r in range(len(all_values) - 1, -1, -1):
