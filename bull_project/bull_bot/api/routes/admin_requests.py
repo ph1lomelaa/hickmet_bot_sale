@@ -10,7 +10,6 @@ from bull_project.bull_bot.core.google_sheets.writer import (
 )
 from bull_project.bull_bot.database.requests import (
     get_pending_requests,
-    get_approval_history,
     get_booking_by_id,
     get_approval_request,
     update_approval_status,
@@ -105,17 +104,13 @@ async def admin_requests_history(
         types = ("cancel", "reschedule") if request_type == "all" else (request_type,)
         result = []
         for r_type in types:
-            rows = await get_approval_history(r_type, date_from=dt_from, date_to=dt_to, limit=300)
-            # Фолбэк: если обработанных нет, показываем и pending за период,
-            # чтобы в "Истории" админ видел фактический поток заявок.
-            if not rows:
-                pending_rows = await get_pending_requests()
-                rows = [
-                    r for r in pending_rows
-                    if r.request_type == r_type
-                    and r.created_at
-                    and dt_from <= r.created_at <= dt_to
-                ]
+            pending_rows = await get_pending_requests()
+            rows = [
+                r for r in pending_rows
+                if r.request_type == r_type
+                and r.created_at
+                and dt_from <= r.created_at <= dt_to
+            ]
             for req in rows:
                 booking = await get_booking_by_id(req.booking_id)
                 if not booking:
