@@ -234,13 +234,13 @@ def is_row_occupied(row, col_last, col_first=None):
     f_name = row[col_first] if col_first and col_first < len(row) else ""
     return len(normalize(l_name)) > 0 or len(normalize(f_name)) > 0
 
-def check_rows_are_empty(all_rows, start_idx, count, col_last):
+def check_rows_are_empty(all_rows, start_idx, count, col_last, col_first=None):
     """Проверка, что N строк подряд пустые"""
     for i in range(count):
         r_idx = start_idx + i
         if r_idx >= len(all_rows):
             return False
-        if is_row_occupied(all_rows[r_idx], col_last):
+        if is_row_occupied(all_rows[r_idx], col_last, col_first):
             return False
     return True
 
@@ -614,6 +614,7 @@ def find_empty_room_slot(all_rows, header_row, end_row, cols, target_room, requi
     empty_only=True — возвращает только полностью пустые комнаты."""
     col_room = cols.get("room")
     col_last = cols.get("last_name")
+    col_first = cols.get("first_name")
     col_gender = cols.get("gender")
     target_room_norm = normalize_room_value(target_room)
     room_capacity = get_room_size(target_room_norm)
@@ -637,7 +638,7 @@ def find_empty_room_slot(all_rows, header_row, end_row, cols, target_room, requi
                         break
 
                     c_row = all_rows[curr_idx]
-                    occupied = is_row_occupied(c_row, col_last)
+                    occupied = is_row_occupied(c_row, col_last, col_first)
 
                     if occupied:
                         all_empty = False
@@ -718,7 +719,7 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
         for i in range(header_row + 1, end_row):
             raw = normalize(all_rows[i][col_room]) if col_room < len(all_rows[i]) else ""
             if 'quad' in raw or '4' in raw:
-                if check_rows_are_empty(all_rows, i, 4, col_last):
+                if check_rows_are_empty(all_rows, i, 4, col_last, col_first):
                     print(f"   ✅ Найден пустой QUAD в строке {i+1} (1 QUAD -> 2 DOUBLE)")
                     return i + 1, cols, "trans_1quad_2dbl"
 
@@ -729,7 +730,7 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
                 if i + 3 < end_row:
                     raw2 = normalize(all_rows[i+3][col_room]) if col_room < len(all_rows[i+3]) else ""
                     if 'trip' in raw2 or 'trpl' in raw2:
-                        if check_rows_are_empty(all_rows, i, 6, col_last):
+                        if check_rows_are_empty(all_rows, i, 6, col_last, col_first):
                             print(f"   ✅ Найдены 2 пустых TRIPLE в строках {i+1} и {i+4} (2 TRIPLE -> 3 DOUBLE)")
                             return i + 1, cols, "trans_2trpl_3dbl"
 
@@ -744,7 +745,7 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
                 if i + 4 < end_row:
                     raw2 = normalize(all_rows[i+4][col_room]) if col_room < len(all_rows[i+4]) else ""
                     if 'quad' in raw2 or '4' in raw2:
-                        if check_rows_are_empty(all_rows, i, 8, col_last):
+                        if check_rows_are_empty(all_rows, i, 8, col_last, col_first):
                             print(f"   ✅ Найдены 2 пустых QUAD в строках {i+1} и {i+5} (2 QUAD -> 2 TRIPLE + DOUBLE)")
                             return i + 1, cols, "trans_2quad_mix"
 
@@ -758,7 +759,7 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
                         if i + 4 < end_row:
                             raw3 = normalize(all_rows[i+4][col_room]) if col_room < len(all_rows[i+4]) else ""
                             if 'dbl' in raw3 or 'doub' in raw3:
-                                if check_rows_are_empty(all_rows, i, 6, col_last):
+                                if check_rows_are_empty(all_rows, i, 6, col_last, col_first):
                                     print(f"   ✅ Найдены 3 пустых DOUBLE (3 DOUBLE -> 2 TRIPLE)")
                                     return i + 1, cols, "trans_3dbl_2trpl"
 
@@ -773,7 +774,7 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
                 if i + 2 < end_row:
                     raw2 = normalize(all_rows[i+2][col_room]) if col_room < len(all_rows[i+2]) else ""
                     if 'dbl' in raw2 or 'doub' in raw2:
-                        if check_rows_are_empty(all_rows, i, 4, col_last):
+                        if check_rows_are_empty(all_rows, i, 4, col_last, col_first):
                             print(f"   ✅ Найдены 2 пустых DOUBLE (2 DOUBLE -> 1 QUAD)")
                             return i + 1, cols, "trans_2dbl_1quad"
 
@@ -785,7 +786,7 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
         for i in range(header_row + 1, end_row):
             raw = normalize(all_rows[i][col_room]) if col_room < len(all_rows[i]) else ""
             if 'dbl' in raw or 'doub' in raw:
-                if check_rows_are_empty(all_rows, i, 2, col_last):
+                if check_rows_are_empty(all_rows, i, 2, col_last, col_first):
                     print(f"   ✅ Найден пустой DOUBLE (1 DOUBLE -> 2 SINGLE)")
                     return i + 1, cols, "trans_1dbl_2sgl"
 
@@ -793,7 +794,7 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
         for i in range(header_row + 1, end_row):
             raw = normalize(all_rows[i][col_room]) if col_room < len(all_rows[i]) else ""
             if 'trip' in raw or 'trpl' in raw:
-                if check_rows_are_empty(all_rows, i, 3, col_last):
+                if check_rows_are_empty(all_rows, i, 3, col_last, col_first):
                     print(f"   ✅ Найден пустой TRIPLE (1 TRIPLE -> 1 DOUBLE + 1 SINGLE)")
                     return i + 1, cols, "trans_1trpl_mix"
 

@@ -20,7 +20,8 @@ from bull_project.bull_bot.config.constants import bot
 from bull_project.bull_bot.database.setup import engine
 from bull_project.bull_bot.core.google_sheets.writer import (
     clear_booking_in_sheets, write_cancelled_booking_red,
-    save_group_booking, write_rescheduled_booking_red
+    save_group_booking, write_rescheduled_booking_red,
+    find_pilgrim_in_package
 )
 from bull_project.bull_bot.database.requests import mark_booking_rescheduled
 
@@ -343,7 +344,6 @@ async def _perform_cancel(booking):
     # ✅ Только если успешно очистили из Sheets - отмечаем в БД
     await mark_booking_cancelled(booking.id)
     return True
-    return sheets_cleared, red_written
 
 @router.callback_query(F.data.startswith("admin_cancel_ok:"))
 async def admin_cancel_ok(call: CallbackQuery):
@@ -367,34 +367,79 @@ async def admin_cancel_ok(call: CallbackQuery):
     
     cancel_success = await _perform_cancel(booking)
     
-    # ❌ Если отмена не удалась - предлагаем варианты
+    # ❌ Если отмена не удалась - ищем паломника по всему пакету
     if not cancel_success:
-        await call.answer("⚠️ Имена не совпадают! Выберите действие.", show_alert=False)
-        
-        # Создаём две кнопки: Отклонить заявку или Принудительно отменить
-        error_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="❌ Отклонить заявку",
-                callback_data=f"admin_cancel_reject:{req_id}"
-            )],
-            [InlineKeyboardButton(
-                text="⚠️ Отменить всё равно (без проверки)",
-                callback_data=f"admin_cancel_force:{req_id}:{booking.id}"
-            )],
-        ])
-        
+        guest_name = f"{booking.guest_last_name} {booking.guest_first_name}"
         await call.message.edit_text(
-            f"⚠️ <b>Ошибка при отмене брони #{booking.id}</b>\n\n"
-            f"<b>Проблема:</b> Имя в Google Sheets не совпадает с именем в БД.\n\n"
-            f"<b>В БД:</b> {booking.guest_last_name} {booking.guest_first_name}\n"
-            f"<b>Бронь:</b> #{booking.id}\n"
-            f"<b>Пакет:</b> {booking.package_name}\n\n"
-            f"<b>Действия:</b>\n"
-            f"1️⃣ Отклонить заявку - если это ошибка\n"
-            f"2️⃣ Отменить всё равно - если вы уверены (удалит без проверки имени)",
-            reply_markup=error_keyboard,
+            f"⏳ Имя на строке {booking.sheet_row_number} не совпадает...\n"
+            f"🔍 Ищу <b>{guest_name}</b> по всему пакету...",
             parse_mode="HTML"
         )
+
+        # Ищем паломника по всему пакету
+        matches = []
+        if booking.table_id and booking.sheet_name and booking.package_name:
+            matches = await find_pilgrim_in_package(
+                booking.table_id,
+                booking.sheet_name,
+                booking.package_name,
+                guest_name
+            )
+
+        if matches:
+            # Нашли паломника - показываем где
+            buttons = []
+            for found_row, found_name in matches[:5]:  # Максимум 5 результатов
+                buttons.append([InlineKeyboardButton(
+                    text=f"✅ Очистить строку {found_row}: {found_name}",
+                    callback_data=f"admin_cancel_row:{req_id}:{booking.id}:{found_row}"
+                )])
+
+            buttons.append([InlineKeyboardButton(
+                text="❌ Отклонить заявку",
+                callback_data=f"admin_cancel_reject:{req_id}"
+            )])
+            buttons.append([InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data="admin_menu"
+            )])
+
+            found_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+            await call.message.edit_text(
+                f"🔍 <b>Паломник найден в другой строке!</b>\n\n"
+                f"<b>Искали:</b> {guest_name}\n"
+                f"<b>В БД строка:</b> {booking.sheet_row_number}\n\n"
+                f"<b>Найден в пакете:</b>\n" +
+                "\n".join([f"• Строка {row}: {name}" for row, name in matches[:5]]) +
+                f"\n\n<b>Выберите строку для очистки:</b>",
+                reply_markup=found_keyboard,
+                parse_mode="HTML"
+            )
+        else:
+            # Не нашли - показываем ошибку
+            error_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="❌ Отклонить заявку",
+                    callback_data=f"admin_cancel_reject:{req_id}"
+                )],
+                [InlineKeyboardButton(
+                    text="🔙 Назад",
+                    callback_data="admin_menu"
+                )],
+            ])
+
+            await call.message.edit_text(
+                f"⚠️ <b>Паломник не найден в пакете!</b>\n\n"
+                f"<b>Искали:</b> {guest_name}\n"
+                f"<b>Пакет:</b> {booking.package_name}\n"
+                f"<b>Лист:</b> {booking.sheet_name}\n"
+                f"<b>Строка в БД:</b> {booking.sheet_row_number}\n\n"
+                f"Паломник не найден ни на указанной строке, ни в других местах пакета.\n"
+                f"Возможно данные уже удалены или имя записано иначе.",
+                reply_markup=error_keyboard,
+                parse_mode="HTML"
+            )
         return
     
     # ✅ Только если успешно - отмечаем в БД
@@ -438,81 +483,211 @@ async def admin_cancel_reject(call: CallbackQuery):
     except: pass
 
 
-@router.callback_query(F.data.startswith("admin_cancel_force:"))
-async def admin_cancel_force(call: CallbackQuery):
-    """Принудительная отмена без проверки имени"""
-    # Проверка прав доступа
+@router.callback_query(F.data.startswith("admin_cancel_row:"))
+async def admin_cancel_at_row(call: CallbackQuery):
+    """Очистка брони по найденной строке (когда исходная строка не совпала)"""
     role = await get_user_role(call.from_user.id)
     if role != "admin":
-        await call.answer("❌ Только администраторы могут выполнять принудительную отмену", show_alert=True)
+        await call.answer("❌ Только администраторы", show_alert=True)
         return
 
     parts = call.data.split(":")
     req_id = int(parts[1])
     booking_id = int(parts[2])
-    
+    found_row = int(parts[3])
+
     req = await get_approval_request(req_id)
-    booking = await get_booking_by_id(booking_id)
-    
-    if not req or not booking:
-        await call.answer("Заявка или бронь не найдена", show_alert=True)
+    if not req or req.status != "pending":
+        await call.answer("Заявка не найдена или уже обработана", show_alert=True)
         return
 
-    await call.message.edit_text("⏳ Выполняю принудительную отмену (без проверки имени)...", parse_mode="HTML")
+    booking = await get_booking_by_id(booking_id)
+    if not booking:
+        await call.answer("Бронь не найдена", show_alert=True)
+        return
 
-    # 🔥 Удаляем ПО СТРОКЕ, не проверяя имя
-    sheets_cleared = False
+    await call.message.edit_text(
+        f"⏳ Очищаю строку {found_row}...",
+        parse_mode="HTML"
+    )
+
     guest_name = f"{booking.guest_last_name} {booking.guest_first_name}"
-    
-    if booking.sheet_row_number and booking.table_id and booking.sheet_name:
+
+    # Очищаем по найденной строке БЕЗ проверки имени (мы уже проверили при поиске)
+    sheets_cleared = False
+    if booking.table_id and booking.sheet_name:
         try:
-            # Вызываем очистку БЕЗ проверки имени
             sheets_cleared = await clear_booking_in_sheets(
                 booking.table_id,
                 booking.sheet_name,
-                booking.sheet_row_number,
+                found_row,  # Используем НАЙДЕННУЮ строку
                 booking.package_name,
-                expected_guest_name=None,  # 🔥 НЕ проверяем имя!
+                expected_guest_name=None,  # Не проверяем - уже нашли
             )
-            if sheets_cleared:
-                print(f"✅ Бронь #{booking.id} удалена принудительно (без проверки имени)")
-            else:
-                print(f"❌ Ошибка удаления строки #{booking.sheet_row_number}")
         except Exception as e:
-            print(f"❌ Ошибка при принудительной отмене: {e}")
+            print(f"❌ Ошибка при очистке строки {found_row}: {e}")
 
-    # 🔴 Записываем отмену красным (если удалось)
-    if sheets_cleared and booking.table_id and booking.sheet_name:
+    if not sheets_cleared:
+        await call.message.edit_text(
+            f"❌ Не удалось очистить строку {found_row}.\n"
+            f"Возможно данные уже удалены.",
+            reply_markup=admin_kb(),
+            parse_mode="HTML"
+        )
+        return
+
+    # Записываем в красный список
+    try:
+        await write_cancelled_booking_red(
+            booking.table_id,
+            booking.sheet_name,
+            booking.package_name,
+            guest_name
+        )
+    except Exception as e:
+        print(f"⚠️ Не удалось записать в красный список: {e}")
+
+    # Обновляем номер строки в БД и отмечаем как отменённую
+    await update_booking_fields(booking.id, {"sheet_row_number": found_row})
+    await mark_booking_cancelled(booking.id)
+    await update_approval_status(req_id, "approved")
+    await delete_admin_request_inbox(req_id)
+
+    text = (
+        f"🗑 <b>Бронь #{booking.id} отменена</b>\n"
+        f"Пакет: {booking.package_name}\n"
+        f"Паломник: {guest_name}\n"
+        f"Строка: {found_row} (найдена автоматически)\n\n"
+        f"✅ Данные очищены из Google Sheets"
+    )
+    await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="HTML")
+
+    try:
+        await bot.send_message(req.initiator_id, f"✅ Отмена брони #{booking.id} одобрена админом.")
+    except: pass
+
+
+@router.callback_query(F.data.startswith("admin_resched_row:"))
+async def admin_resched_clear_row(call: CallbackQuery):
+    """Очистка старой брони по найденной строке при переносе"""
+    role = await get_user_role(call.from_user.id)
+    if role != "admin":
+        await call.answer("❌ Только администраторы", show_alert=True)
+        return
+
+    parts = call.data.split(":")
+    req_id = int(parts[1])
+    booking_id = int(parts[2])
+    found_row = int(parts[3])
+    idx = int(parts[4])
+
+    req = await get_approval_request(req_id)
+    if not req:
+        await call.answer("Заявка не найдена", show_alert=True)
+        return
+
+    booking = await get_booking_by_id(booking_id)
+    if not booking:
+        await call.answer("Бронь не найдена", show_alert=True)
+        return
+
+    await call.message.edit_text(
+        f"⏳ Очищаю строку {found_row}...",
+        parse_mode="HTML"
+    )
+
+    guest_name = f"{booking.guest_last_name} {booking.guest_first_name}"
+
+    # Очищаем по найденной строке
+    sheets_cleared = False
+    if booking.table_id and booking.sheet_name:
         try:
-            await write_cancelled_booking_red(
+            sheets_cleared = await clear_booking_in_sheets(
+                booking.table_id,
+                booking.sheet_name,
+                found_row,
+                booking.package_name,
+                expected_guest_name=None,
+            )
+        except Exception as e:
+            print(f"❌ Ошибка при очистке строки {found_row}: {e}")
+
+    if sheets_cleared:
+        # Записываем в красный список (перенос)
+        try:
+            await write_rescheduled_booking_red(
                 booking.table_id,
                 booking.sheet_name,
                 booking.package_name,
                 guest_name
             )
         except Exception as e:
-            print(f"⚠️ Не удалось записать отмену красным: {e}")
+            print(f"⚠️ Не удалось записать в красный список: {e}")
 
-    # ✅ Отмечаем в БД
-    await mark_booking_cancelled(booking.id)
+        # Обновляем номер строки и отмечаем как перенесённую
+        await update_booking_fields(booking.id, {"sheet_row_number": found_row})
+
+        # Получаем new_ids из комментария заявки
+        new_ids = []
+        if req.comment:
+            try:
+                import json as _json
+                parsed = _json.loads(req.comment)
+                if isinstance(parsed, dict):
+                    new_ids = [int(x) for x in (parsed.get("new_booking_ids") or []) if int(x) > 0]
+            except:
+                pass
+        if not new_ids:
+            new_ids = [req.booking_id]
+
+        target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
+        await mark_booking_rescheduled(booking.id, comment=f"Перенесено в #{target_new}")
+
+        await call.message.edit_text(
+            f"✅ <b>Строка {found_row} очищена</b>\n"
+            f"Паломник: {guest_name}\n\n"
+            f"Бронь #{booking.id} отмечена как перенесённая в #{target_new}",
+            reply_markup=admin_kb(),
+            parse_mode="HTML"
+        )
+    else:
+        await call.message.edit_text(
+            f"❌ Не удалось очистить строку {found_row}.\n"
+            f"Возможно данные уже удалены.",
+            reply_markup=admin_kb(),
+            parse_mode="HTML"
+        )
+
+
+@router.callback_query(F.data.startswith("admin_resched_skip:"))
+async def admin_resched_skip_cleanup(call: CallbackQuery):
+    """Пропустить очистку старых броней и завершить перенос"""
+    role = await get_user_role(call.from_user.id)
+    if role != "admin":
+        await call.answer("❌ Только администраторы", show_alert=True)
+        return
+
+    req_id = int(call.data.split(":")[1])
+
+    req = await get_approval_request(req_id)
+    if not req:
+        await call.answer("Заявка не найдена или уже обработана", show_alert=True)
+        return
+
+    # Одобряем заявку без очистки старых данных
     await update_approval_status(req_id, "approved")
     await delete_admin_request_inbox(req_id)
 
-    status_text = "✅ Данные удалены из Google Sheets" if sheets_cleared else "⚠️ Не удалось удалить, но бронь отменена в БД"
-    
-    text = (
-        f"🗑 <b>Бронь #{booking.id} отменена ПРИНУДИТЕЛЬНО</b>\n"
-        f"Пакет: {booking.package_name}\n"
-        f"Паломник: {booking.guest_last_name} {booking.guest_first_name}\n\n"
-        f"{status_text}"
+    await call.message.edit_text(
+        f"✅ <b>Перенос завершён</b>\n\n"
+        f"⚠️ Очистка старых данных пропущена.\n"
+        f"Проверьте и удалите данные в Google Sheets вручную.",
+        reply_markup=admin_kb(),
+        parse_mode="HTML"
     )
-    await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="HTML")
-    
+
     try:
-        await bot.send_message(
-            req.initiator_id,
-            f"✅ Отмена брони #{booking.id} одобрена админом (принудительно)."
-        )
+        await bot.send_message(req.initiator_id, f"✅ Перенос одобрен админом.")
     except: pass
 
 
@@ -614,7 +789,7 @@ async def admin_resched_ok(call: CallbackQuery):
     # Обработка старой брони (очистка из таблицы)
     cleanup_failed = False
     cleanup_failed_bookings = []  # 🔥 Храним брони которые не удалось очистить
-    
+
     for idx, ob in enumerate(old_bookings):
         if ob.sheet_row_number and ob.table_id and ob.sheet_name:
             old_guest_name = f"{ob.guest_last_name} {ob.guest_first_name}"
@@ -632,44 +807,110 @@ async def admin_resched_ok(call: CallbackQuery):
                     target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
                     await mark_booking_rescheduled(ob.id, comment=f"Перенесено в #{target_new}")
                 else:
-                    print(f"⚠️ Не удалось очистить старую бронь #{ob.id} (возможно несовпадение имени)")
-                    cleanup_failed = True
-                    cleanup_failed_bookings.append((ob.id, idx))
+                    # 🔍 Ищем паломника по всему пакету
+                    print(f"⚠️ Имя на строке {ob.sheet_row_number} не совпадает, ищем по пакету...")
+                    matches = await find_pilgrim_in_package(
+                        ob.table_id,
+                        ob.sheet_name,
+                        ob.package_name,
+                        old_guest_name
+                    )
+                    if matches:
+                        # Нашли - показываем где и предлагаем выбрать
+                        cleanup_failed = True
+                        cleanup_failed_bookings.append((ob.id, idx, matches))
+                    else:
+                        # Не нашли вообще
+                        cleanup_failed = True
+                        cleanup_failed_bookings.append((ob.id, idx, None))
             except Exception as e:
                 print(f"❌ ОШИБКА при очистке старой брони #{ob.id}: {e}")
                 cleanup_failed = True
-                cleanup_failed_bookings.append((ob.id, idx))
+                cleanup_failed_bookings.append((ob.id, idx, None))
         else:
             # Если нет данных для очистки из Sheets - отмечаем как перенесённую
             target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
             await mark_booking_rescheduled(ob.id, comment=f"Перенесено в #{target_new}")
 
-    # 🔥 Если были ошибки очистки - предлагаем варианты
+    # 🔥 Если были ошибки очистки - показываем варианты
     if cleanup_failed:
-        # Создаём кнопку для принудительного переноса
-        force_data = ",".join([f"{bid}:{idx}" for bid, idx in cleanup_failed_bookings])
-        force_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="⚠️ Отметить перенесённые всё равно",
-                callback_data=f"admin_resched_force:{req_id}:{force_data}"
-            )],
-            [InlineKeyboardButton(
-                text="🔙 Назад к меню",
-                callback_data="admin_stats"
-            )],
-        ])
-        
-        await call.message.edit_text(
-            f"⚠️ <b>Перенос частично выполнен</b>\n\n"
-            f"✅ Новые брони созданы\n"
-            f"❌ НО: Не удалось удалить {len(cleanup_failed_bookings)} старую(-ых) бронь(-и)\n\n"
-            f"<b>Причина:</b> Имена в Google Sheets не совпадают с именами в БД.\n\n"
-            f"<b>Действия:</b>\n"
-            f"1️⃣ Отметить как перенесённые всё равно (данные остаются в Sheets)\n"
-            f"2️⃣ Вернуться и проверить вручную",
-            reply_markup=force_keyboard,
-            parse_mode="HTML"
-        )
+        # Проверяем есть ли найденные паломники
+        found_any = any(item[2] for item in cleanup_failed_bookings if len(item) > 2)
+
+        if found_any:
+            # Есть найденные - показываем кнопки для выбора
+            buttons = []
+            info_lines = []
+
+            for item in cleanup_failed_bookings:
+                bid = item[0]
+                idx = item[1]
+                matches = item[2] if len(item) > 2 else None
+                b = await get_booking_by_id(bid)
+
+                if b and matches:
+                    guest_name = f"{b.guest_last_name} {b.guest_first_name}"
+                    info_lines.append(f"<b>{guest_name}</b> (строка {b.sheet_row_number} в БД):")
+                    for found_row, found_name in matches[:3]:
+                        buttons.append([InlineKeyboardButton(
+                            text=f"✅ Очистить строку {found_row}: {found_name}",
+                            callback_data=f"admin_resched_row:{req_id}:{bid}:{found_row}:{idx}"
+                        )])
+                        info_lines.append(f"  • Найден в строке {found_row}")
+                elif b:
+                    guest_name = f"{b.guest_last_name} {b.guest_first_name}"
+                    info_lines.append(f"<b>{guest_name}</b> - не найден в пакете")
+
+            buttons.append([InlineKeyboardButton(
+                text="⏭ Пропустить очистку",
+                callback_data=f"admin_resched_skip:{req_id}"
+            )])
+            buttons.append([InlineKeyboardButton(
+                text="🔙 Назад",
+                callback_data="admin_menu"
+            )])
+
+            found_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+            await call.message.edit_text(
+                f"🔍 <b>Перенос: паломники найдены в других строках!</b>\n\n"
+                f"✅ Новые брони созданы: {', '.join([str(x) for x in new_ids])}\n\n"
+                f"⚠️ Старые брони не на указанных строках:\n" +
+                "\n".join(info_lines) +
+                f"\n\n<b>Выберите строки для очистки или пропустите:</b>",
+                reply_markup=found_keyboard,
+                parse_mode="HTML"
+            )
+        else:
+            # Не нашли никого - показываем ошибку
+            failed_info = []
+            for item in cleanup_failed_bookings:
+                bid = item[0]
+                b = await get_booking_by_id(bid)
+                if b:
+                    failed_info.append(f"#{bid} ({b.guest_last_name} {b.guest_first_name}) - строка {b.sheet_row_number}")
+
+            error_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="⏭ Пропустить очистку (завершить перенос)",
+                    callback_data=f"admin_resched_skip:{req_id}"
+                )],
+                [InlineKeyboardButton(
+                    text="🔙 Назад к меню",
+                    callback_data="admin_menu"
+                )],
+            ])
+
+            await call.message.edit_text(
+                f"⚠️ <b>Перенос частично выполнен</b>\n\n"
+                f"✅ Новые брони созданы: {', '.join([str(x) for x in new_ids])}\n"
+                f"❌ НО: Не удалось найти старые брони в таблице\n\n"
+                f"<b>Проблемные брони:</b>\n" + "\n".join(failed_info) + "\n\n"
+                f"Паломники не найдены ни на указанных строках, ни в других местах пакета.\n"
+                f"Возможно данные уже удалены.",
+                reply_markup=error_keyboard,
+                parse_mode="HTML"
+            )
         return
 
     await update_approval_status(req_id, "approved")
@@ -698,86 +939,6 @@ async def admin_resched_ok(call: CallbackQuery):
                 f"✅ Перенос группы одобрен админом.\nПаломники: {names}\nНовые: {', '.join([str(x) for x in new_ids])}"
             )
     except: pass
-
-
-@router.callback_query(F.data.startswith("admin_resched_force:"))
-async def admin_resched_force(call: CallbackQuery):
-    """Принудительный перенос - отмечает брони как перенесённые без проверки имён"""
-    # Проверка прав доступа
-    role = await get_user_role(call.from_user.id)
-    if role != "admin":
-        await call.answer("❌ Только администраторы могут выполнять принудительный перенос", show_alert=True)
-        return
-
-    parts = call.data.split(":", 2)
-    req_id = int(parts[1])
-    force_data_str = parts[2] if len(parts) > 2 else ""
-    
-    req = await get_approval_request(req_id)
-    if not req:
-        await call.answer("Заявка не найдена", show_alert=True)
-        return
-
-    # Парсим данные: "booking_id1:idx1,booking_id2:idx2..."
-    force_bookings = []
-    if force_data_str:
-        for pair in force_data_str.split(","):
-            try:
-                bid, idx = pair.split(":")
-                force_bookings.append((int(bid), int(idx)))
-            except:
-                pass
-    
-    new_booking = await get_booking_by_id(req.booking_id)
-    new_ids = []
-    if req.comment:
-        try:
-            new_ids = [int(x.strip()) for x in req.comment.split("new:")[1].split(",") if x.strip()]
-        except:
-            new_ids = [req.booking_id]
-    if not new_ids:
-        new_ids = [req.booking_id]
-
-    await call.message.edit_text(
-        "⏳ Отмечаю брони как перенесённые (без очистки Sheets)...",
-        parse_mode="HTML"
-    )
-
-    # ✅ Отмечаем брони как перенесённые
-    for bid, idx in force_bookings:
-        try:
-            booking = await get_booking_by_id(bid)
-            if booking:
-                target_new = new_ids[idx] if idx < len(new_ids) else new_ids[0]
-                await mark_booking_rescheduled(
-                    booking.id,
-                    comment=f"Перенесено в #{target_new} (принудительно, без удаления из Sheets)"
-                )
-                print(f"✅ Бронь #{bid} отмечена как перенесённая в #{target_new}")
-        except Exception as e:
-            print(f"❌ Ошибка при отметке брони #{bid}: {e}")
-
-    # ✅ Одобряем заявку
-    await update_approval_status(req_id, "approved")
-    await delete_admin_request_inbox(req_id)
-
-    text = (
-        f"♻️ <b>Перенос одобрен ПРИНУДИТЕЛЬНО</b>\n"
-        f"Пакет: {new_booking.package_name if new_booking else 'N/A'}\n"
-        f"Новые брони: {', '.join([str(x) for x in new_ids])}\n\n"
-        f"⚠️ ВАЖНО: Старые данные остаются в Google Sheets!\n"
-        f"Удалите их вручную в таблице."
-    )
-    await call.message.edit_text(text, reply_markup=admin_kb(), parse_mode="HTML")
-
-    try:
-        await bot.send_message(
-            req.initiator_id,
-            f"✅ Перенос одобрен админом (принудительно, без проверки имён).\n"
-            f"Новые брони: {', '.join([str(x) for x in new_ids])}"
-        )
-    except:
-        pass
 
 
 @router.callback_query(F.data.startswith("admin_resched_reject:"))

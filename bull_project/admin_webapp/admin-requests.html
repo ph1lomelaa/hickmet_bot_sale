@@ -112,7 +112,7 @@
     }
 
     .ok {
-      background:linear-gradient(135deg,#71C562 0%,#3F8E46 100%);
+      background:linear-gradient(135deg,#644104b3 0%,#644104b3 100%);
       color:#FFF;
       box-shadow:0 6px 14px rgba(63,142,70,0.25);
     }
@@ -146,7 +146,21 @@
   </style>
 </head>
 <body>
-  <h2>Заявки на отмену/перенос</h2>
+  <h2 id="page-title">Заявки на отмену/перенос</h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+    <button class="btn neutral" onclick="openRequests()"> Заявки</button>
+    <button class="btn neutral" onclick="openHistory()"> История</button>
+  </div>
+  <div id="history-filters" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+    <select id="history-type" class="btn neutral" style="max-width:220px;">
+      <option value="all">Все</option>
+      <option value="cancel">Отмена</option>
+      <option value="reschedule">Перенос</option>
+    </select>
+    <input type="date" id="start-date" class="btn neutral" style="max-width:180px;">
+    <input type="date" id="end-date" class="btn neutral" style="max-width:180px;">
+    <button class="btn ok" onclick="loadHistory()" style="max-width:180px;">Показать</button>
+  </div>
   <div id="list"></div>
 
   <script>
@@ -155,6 +169,28 @@
 
     tg.ready();
     tg.expand();
+
+   function ymd(d) { return d.toISOString().slice(0,10); }
+
+   function initHistoryDates() {
+      const now = new Date();
+      const from = new Date(now);
+      from.setDate(now.getDate() - 30);
+      document.getElementById('start-date').value = ymd(from);
+      document.getElementById('end-date').value = ymd(now);
+   }
+
+   function openRequests() {
+      document.getElementById('page-title').textContent = 'Заявки на отмену/перенос';
+      document.getElementById('history-filters').style.display = 'none';
+      loadRequests();
+   }
+
+   function openHistory() {
+      document.getElementById('page-title').textContent = 'История отмен/переносов';
+      document.getElementById('history-filters').style.display = 'flex';
+      loadHistory();
+   }
 
    async function loadRequests() {
       const container = document.getElementById('list');
@@ -171,6 +207,32 @@
         container.innerHTML = json.data.map(renderCard).join('');
       } catch (e) {
         container.innerHTML = '<div class="empty">Ошибка загрузки</div>';
+      }
+    }
+
+    async function loadHistory() {
+      const container = document.getElementById('list');
+      container.innerHTML = "⏳ Загружаю...";
+      const requestType = document.getElementById('history-type').value;
+      const startDate = document.getElementById('start-date').value;
+      const endDate = document.getElementById('end-date').value;
+      try {
+        const qs = new URLSearchParams({
+          request_type: requestType,
+          start_date: startDate,
+          end_date: endDate
+        });
+        const res = await fetch(`${API_URL}/api/admin/requests/history?${qs.toString()}`, {
+          headers: {"ngrok-skip-browser-warning": "1"}
+        });
+        const json = await res.json();
+        if (!json.ok || !json.data || !json.data.length) {
+          container.innerHTML = '<div class="empty">История пуста за выбранный период</div>';
+          return;
+        }
+        container.innerHTML = json.data.map(renderHistoryCard).join('');
+      } catch (e) {
+        container.innerHTML = '<div class="empty">Ошибка загрузки истории</div>';
       }
     }
 
@@ -268,7 +330,31 @@
       loadRequests();
     }
 
-    loadRequests();
+    function renderHistoryCard(r) {
+      const b = r.booking || {};
+      const created = r.created_at ? new Date(r.created_at).toLocaleString('ru-RU') : '-';
+      const reqType = r.request_type === 'cancel' ? 'Отмена' : 'Перенос';
+      const status = r.status === 'approved' ? 'Одобрено' : 'Отклонено';
+      return `
+      <div class="card">
+        <div class="header">
+          <div>
+            <div class="title">${reqType} · #${r.id}</div>
+            <div class="meta">Дата заявки: ${created}</div>
+          </div>
+          <div class="status">${status}</div>
+        </div>
+        <div class="section">
+          <div class="row"><span class="label">ФИО</span><span class="value">${b.guest_last_name || '-'} ${b.guest_first_name || '-'}</span></div>
+          <div class="row"><span class="label">Пакет</span><span class="value">${b.package_name || '-'}</span></div>
+          <div class="row"><span class="label">Лист/строка</span><span class="value">${b.sheet_name || '-'} / ${b.sheet_row_number || '-'}</span></div>
+          <div class="row"><span class="label">Менеджер</span><span class="value">${b.manager_name_text || '-'}</span></div>
+        </div>
+      </div>`;
+    }
+
+    initHistoryDates();
+    openRequests();
   </script>
 </body>
 </html>
