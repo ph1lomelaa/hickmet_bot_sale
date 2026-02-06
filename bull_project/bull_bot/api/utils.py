@@ -6,7 +6,6 @@ from urllib.parse import unquote_plus
 
 
 def normalize_sheet_and_package(raw_sheet_name: str, raw_package_name: str):
-    """Очищает названия от лишних символов перед записью."""
     s_name = unquote_plus(raw_sheet_name).strip()
     p_name = unquote_plus(raw_package_name).strip()
     if "[" in p_name and "]" in p_name:
@@ -15,16 +14,6 @@ def normalize_sheet_and_package(raw_sheet_name: str, raw_package_name: str):
 
 
 def check_passport_expiry(passport_expiry: str) -> Optional[str]:
-    """
-    Проверяет срок действия паспорта.
-    Если паспорт истекает в течение 6 месяцев - возвращает предупреждение.
-    Возвращает None если все в порядке.
-
-    Поддерживаемые форматы дат:
-    - DD.MM.YYYY
-    - YYYY-MM-DD
-    - DD/MM/YYYY
-    """
     if not passport_expiry or str(passport_expiry).strip() in ("-", ""):
         return None
 
@@ -58,10 +47,6 @@ def check_passport_expiry(passport_expiry: str) -> Optional[str]:
 
 
 def get_active_tables_for_care() -> Dict[str, str]:
-    """
-    Возвращает словарь таблиц за текущий и следующий год.
-    Если фильтр ничего не вернул, отдаём все доступные таблицы.
-    """
     from bull_project.bull_bot.core.google_sheets.client import get_accessible_tables
 
     tables = get_accessible_tables() or {}
@@ -72,9 +57,6 @@ def get_active_tables_for_care() -> Dict[str, str]:
 
 
 async def resolve_passport_path(booking) -> Optional[str]:
-    """
-    Возвращает путь к паспорту для брони, с фолбэком на последнее фото по ФИО.
-    """
     from bull_project.bull_bot.database.requests import get_latest_passport_for_person
 
     passport_path = booking.passport_image_path

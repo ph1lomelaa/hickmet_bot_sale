@@ -1,5 +1,6 @@
 import os
 import io
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -19,8 +20,17 @@ router = APIRouter()
 # uploads dir is shared via volume on API service
 os.makedirs(ABS_UPLOADS_DIR, exist_ok=True)
 
-# Инициализация парсера паспортов
-passport_parser = PassportParser(debug=False)
+_PASSPORT_PARSER = None
+_PASSPORT_PARSER_LOCK = threading.Lock()
+
+
+def get_passport_parser(debug: bool = False):
+    global _PASSPORT_PARSER
+    if _PASSPORT_PARSER is None:
+        with _PASSPORT_PARSER_LOCK:
+            if _PASSPORT_PARSER is None:
+                _PASSPORT_PARSER = PassportParser(debug=debug)
+    return _PASSPORT_PARSER
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,8 +40,6 @@ async def api_passport_parse(file: UploadFile = File(...)):
     """Парсинг паспорта и извлечение данных + сохранение файла."""
     try:
         import time
-        from pdf2image import convert_from_path
-        from PIL import Image
 
         # Создаем директорию для uploads если её нет
         uploads_dir = os.path.join(PROJECT_ROOT, "tmp", "uploads")
@@ -40,56 +48,33 @@ async def api_passport_parse(file: UploadFile = File(...)):
         # Генерируем уникальное имя файла
         timestamp = int(time.time() * 1000)
         ext = os.path.splitext(file.filename)[1] if file.filename else ".jpg"
-        temp_path = f"/tmp/passport_{timestamp}_temp{ext}"
+        filename = f"web_{timestamp}{ext}"
+        target_path = os.path.join(uploads_dir, filename)
 
-        # Сохраняем временный файл
-        with open(temp_path, "wb") as f:
+        # Сохраняем файл сразу в uploads
+        with open(target_path, "wb") as f:
             content = await file.read()
             f.write(content)
 
-        print(f"📥 Веб-форма: файл загружен {temp_path}")
-
-        # Конвертируем в PNG
-        png_path = os.path.join(uploads_dir, f"web_{timestamp}.png")
-
-        try:
-            if temp_path.lower().endswith('.pdf'):
-                # Конвертируем PDF в PNG
-                print(f"🔄 Конвертация PDF в PNG...")
-                poppler_path = os.getenv("POPPLER_PATH", "/opt/homebrew/bin")
-                pages = convert_from_path(temp_path, dpi=500, poppler_path=poppler_path)
-                if pages:
-                    pages[0].save(png_path, 'PNG')
-                    print(f"✅ PDF сконвертирован: {png_path}")
-            else:
-                # Конвертируем изображение в PNG
-                img = Image.open(temp_path)
-                img.save(png_path, 'PNG')
-                print(f"✅ Изображение сохранено: {png_path}")
-        except Exception as conv_err:
-            print(f"⚠️ Ошибка конвертации: {conv_err}, используем оригинал")
-            png_path = temp_path
+        print(f"📥 Веб-форма: файл загружен {target_path}")
 
         # Парсим паспорт
-        passport_data = await run_in_threadpool(passport_parser.parse, temp_path)
-
-        # Удаляем временный файл (если это не финальный файл)
-        if temp_path != png_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+        parser = get_passport_parser(debug=False)
+        passport_data = await run_in_threadpool(parser.parse, target_path)
 
         if not passport_data.is_valid:
             # Удаляем сохраненный файл если данные невалидны
-            if os.path.exists(png_path):
-                os.remove(png_path)
+            if os.path.exists(target_path):
+                os.remove(target_path)
             return JSONResponse(
                 status_code=400,
                 content={"ok": False, "error": "Не удалось распознать данные паспорта"}
             )
 
         result_data = passport_data.to_dict()
-        result_data['passport_image_path'] = png_path
+        result_data['passport_image_path'] = target_path
 
-        print(f"✅ Веб-форма: паспорт сохранен в {png_path}")
+        print(f"✅ Веб-форма: паспорт сохранен в {target_path}")
 
         return {
             "ok": True,
@@ -143,11 +128,9 @@ async def api_passport_upload(file: UploadFile = File(...)):
         try:
             print(f"🔍 Запуск распознавания паспорта...")
 
-            from bull_project.bull_bot.core.parsers.passport_parser import PassportParser
-
             def parse_passport():
                 try:
-                    parser = PassportParser(debug=True)
+                    parser = get_passport_parser(debug=False)
                     return parser.parse(target_path)
                 except Exception as e:
                     print(f"⚠️ Ошибка парсера: {e}")

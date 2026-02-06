@@ -822,10 +822,23 @@
             <div class="tabs">
                 <button class="tab active" onclick="showTab('overview')">Общая статистика</button>
                 <button class="tab" onclick="showTab('managers')">Менеджеры</button>
+                <button class="tab" onclick="showTab('package-stats')">Статистика проданных пакетов</button>
             </div>
         </div>
 
         <div class="quick-actions">
+        </div>
+
+        <div id="package-stats" class="content-section">
+            <h2>Статистика проданных пакетов</h2>
+            <div class="date-selector">
+                <input type="date" id="pkg-start-date" />
+                <input type="date" id="pkg-end-date" />
+                <button class="btn" onclick="loadPackageStats()">Загрузить</button>
+            </div>
+            <div class="table-container">
+                <div id="package-stats-container"></div>
+            </div>
         </div>
 
         <!-- ОБЩАЯ СТАТИСТИКА -->
@@ -938,6 +951,9 @@
             if (tabName === 'managers') {
                 loadManagers();
             }
+            if (tabName === 'package-stats') {
+                loadPackageStats();
+            }
         }
 
         // Установка быстрых периодов
@@ -983,6 +999,7 @@
                     renderChart(data.daily_dynamics);
                     renderTopPackages(data.top_packages);
                     renderManagersRating(data.managers_rating);
+                    window._packageSalesFull = data.package_sales_full || [];
                 } else {
                     tg.showAlert('Ошибка загрузки данных');
                 }
@@ -1099,6 +1116,60 @@
             html += '</tbody></table>';
 
             table.innerHTML = html;
+        }
+
+        function renderPackageStats(items) {
+            const container = document.getElementById('package-stats-container');
+            if (!items || !items.length) {
+                container.innerHTML = '<p style="padding:16px;color:var(--text-secondary);">Нет продаж за выбранный период</p>';
+                return;
+            }
+            let html = '<table><thead><tr><th>Пакет</th><th>Продано</th><th></th></tr></thead><tbody>';
+            items.forEach((pkg, idx) => {
+                html += `<tr>
+                    <td>${pkg.package_name}</td>
+                    <td><strong>${pkg.total}</strong></td>
+                    <td style="text-align:right;"><button class="btn btn-secondary" style="padding:6px 10px;" onclick="togglePkgManagers(${idx})">▼</button></td>
+                </tr>`;
+                html += `<tr id="pkg-mgr-${idx}" style="display:none;">
+                    <td colspan="3">
+                        <table style="width:100%;margin:8px 0;">
+                            <thead><tr><th>Менеджер</th><th>Продал</th></tr></thead>
+                            <tbody>
+                                ${(pkg.managers || []).map(m => `<tr><td>${m.manager_name}</td><td><strong>${m.count}</strong></td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function togglePkgManagers(idx) {
+            const row = document.getElementById(`pkg-mgr-${idx}`);
+            if (!row) return;
+            row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+        }
+
+        async function loadPackageStats() {
+            const startInput = document.getElementById('pkg-start-date');
+            const endInput = document.getElementById('pkg-end-date');
+            if (!startInput.value || !endInput.value) {
+                const now = new Date();
+                const monthAgo = new Date(now);
+                monthAgo.setMonth(now.getMonth() - 1);
+                startInput.value = monthAgo.toISOString().split('T')[0];
+                endInput.value = now.toISOString().split('T')[0];
+            }
+            try {
+                const response = await apiFetch(`${API_BASE}/api/admin/analytics?start_date=${startInput.value}&end_date=${endInput.value}`);
+                const data = await response.json();
+                if (!data.ok) throw new Error('analytics error');
+                renderPackageStats(data.package_sales_full || []);
+            } catch (e) {
+                document.getElementById('package-stats-container').innerHTML = '<p style="padding:16px;color:var(--danger-text);">Ошибка загрузки</p>';
+            }
         }
 
         // Загрузка списка менеджеров

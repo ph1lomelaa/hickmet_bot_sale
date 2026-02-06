@@ -1,16 +1,58 @@
 version: '3.8'
 
 services:
-  bot:
-    build: .
-    container_name: bull_bot
+  api:
+    build:
+      context: ..
+      dockerfile: bull_project/Dockerfile
+    container_name: bull_api
     restart: always
     depends_on:
       - db
     environment:
       - DATABASE_URL=postgresql+asyncpg://bull:password@db:5432/bull_db
+      - SKIP_BOT=true
       - PASSPORT_ENGINE=easyocr
       - POPPLER_PATH=/usr/bin
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
+      - TORCH_NUM_THREADS=1
+    command: uvicorn bull_project.bull_bot.core.api_server:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    cpus: "1.0"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: bull_project/Dockerfile
+    container_name: bull_worker
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://bull:password@db:5432/bull_db
+      - SKIP_BOT=false
+      - PASSPORT_ENGINE=easyocr
+      - POPPLER_PATH=/usr/bin
+      - OCR_API_URL=http://api:8000
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
+      - TORCH_NUM_THREADS=1
+    command: python -m bull_project.bull_bot.main
+    cpus: "1.0"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
 
   db:
     image: postgres:15-alpine

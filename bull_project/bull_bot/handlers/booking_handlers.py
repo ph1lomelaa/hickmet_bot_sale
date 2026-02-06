@@ -16,7 +16,6 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from pytesseract.pytesseract import LOGGER
 from contextlib import suppress
 import asyncio
 
@@ -42,8 +41,7 @@ router = Router()
 # Ссылка на твой фронтенд
 WEB_APP_URL = "https://ph1lomelaa.github.io/book/index.html"
 
-# Импортируем API_BASE_URL из констант
-from bull_project.bull_bot.config.constants import API_BASE_URL
+OCR_API_URL = os.getenv("OCR_API_URL", "").rstrip("/") or API_BASE_URL
 
 # Хелпер функция для добавления api_url
 def get_webapp_url(extra_params: dict = None) -> str:
@@ -240,7 +238,7 @@ async def open_history_info(call: CallbackQuery, state: FSMContext):
 
 # В функции process_passport (строка ~100)
 
-PARSER_ENGINE = os.getenv("PASSPORT_ENGINE", "tesseract").lower()
+PARSER_ENGINE = os.getenv("PASSPORT_ENGINE", "easyocr").lower()
 
 # 🚀 ОПТИМИЗАЦИЯ: Глобальное кэширование парсера
 # EasyOCR загружает модели при инициализации (~10-15 секунд)
@@ -287,68 +285,123 @@ async def process_passport(message: Message, state: FSMContext):
     await bot.download_file((await bot.get_file(fid)).file_path, original_path)
     print(f"📥 Оригинал загружен: {original_path}")
 
-    # Конвертируем в PNG (итоговый путь всегда .png)
-    png_path = os.path.join(ABS_UPLOADS_DIR, f"{message.from_user.id}_p{curr}.png")
-
-    try:
-        from pdf2image import convert_from_path
-        from PIL import Image
-
-        if original_path.lower().endswith('.pdf'):
-            # Конвертируем PDF в PNG
-            print(f"🔄 Конвертация PDF в PNG...")
-            pages = convert_from_path(original_path, dpi=300, poppler_path=POPPLER_PATH)
-            if pages:
-                pages[0].save(png_path, 'PNG')
-                print(f"✅ PDF сконвертирован в PNG: {png_path}")
-            else:
-                raise Exception("Не удалось конвертировать PDF")
-        else:
-            # Если это изображение, просто конвертируем в PNG
-            img = Image.open(original_path)
-            img.save(png_path, 'PNG')
-            print(f"✅ Изображение сохранено как PNG: {png_path}")
-        path_for_ocr = png_path  # OCR делаем по PNG
-        print(f"📸 PNG для OCR: {path_for_ocr}")
-
-    except Exception as e:
-        print(f"⚠️ Ошибка конвертации, используем оригинал: {e}")
-        path_for_ocr = original_path
+    path_for_ocr = original_path
 
     msg = await message.answer("⏳ Читаю данные... (это может занять до 30 сек)\n\n💡 Если долго - можете ввести данные вручную")
 
     try:
-        import asyncio
+        p_data = None
+        uploaded_path = None
 
-        # 🔥 ТАЙМАУТ: Даем OCR максимум 30 секунд
-        async def parse_with_timeout():
-            parser = create_passport_parser(debug=(curr <= 3), save_ocr=True)
-            # Запускаем парсинг в отдельном потоке (parser.parse блокирующая функция)
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, parser.parse, path_for_ocr)
+        if OCR_API_URL:
+            max_attempts = 2
+            timeout = aiohttp.ClientTimeout(total=45)
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    upload_url = f"{OCR_API_URL}/api/passports/upload"
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        # Загружаем ОРИГИНАЛЬНЫЙ файл, чтобы он сохранился без конвертации
+                        with open(original_path, "rb") as f:
+                            form = aiohttp.FormData()
+                            form.add_field("file", f, filename=os.path.basename(original_path))
+                            resp = await session.post(upload_url, data=form)
+                            res_json = await resp.json()
 
-        try:
-            passport_result = await asyncio.wait_for(parse_with_timeout(), timeout=30.0)
-        except asyncio.TimeoutError:
-            print(f"⏱️ OCR превысил таймаут 30 секунд")
-            with suppress(Exception):
-                await msg.delete()
-            await state.update_data(temp_p={'passport_image_path': os.path.basename(original_path)})
-            await message.answer(
-                "⏱️ <b>Распознавание заняло слишком много времени</b>\n\n"
-                "Пожалуйста, введите <b>Фамилию и Имя</b> вручную:",
-                parse_mode="HTML"
-            )
-            await state.set_state(BookingFlow.waiting_manual_name)
-            return
+                    if resp.status == 200 and res_json.get("ok"):
+                        uploaded_path = res_json.get("path")
+                        parsed = res_json.get("parsed_data") or res_json.get("data") or {}
+                        if parsed:
+                            p_data = {
+                                "Last Name": (parsed.get("last_name") or "-").strip().upper(),
+                                "First Name": (parsed.get("first_name") or "-").strip().upper(),
+                                "Gender": (parsed.get("gender") or "").strip().upper(),
+                                "Date of Birth": (parsed.get("date_of_birth") or "-").strip(),
+                                "Document Number": (parsed.get("passport_num") or "-").strip(),
+                                "Document Expiration": (parsed.get("passport_expiry") or "-").strip(),
+                                "IIN": (parsed.get("iin") or "-").strip(),
+                            }
+                            passport_warning = res_json.get("passport_warning") or parsed.get("passport_warning")
+                            if passport_warning:
+                                p_data["passport_warning"] = passport_warning
+                            print("✅ Паспорт распознан через API")
+                        else:
+                            print("⚠️ OCR через API не вернул данные")
+                        break
 
-        # 🔥 ИСПРАВЛЕНИЕ: Используем to_dict() для получения всех полей
-        p_data = passport_result.to_dict()
-        # В БД/сервере хотим хранить ОРИГИНАЛ (jpg/pdf), а PNG используем только для OCR.
-        p_data['passport_image_path'] = os.path.basename(original_path)
+                    print(f"⚠️ Не удалось распознать через API: status={resp.status}, res={res_json}")
+                except asyncio.TimeoutError:
+                    print(f"⏱️ Таймаут OCR API (попытка {attempt}/{max_attempts})")
+                except Exception as e:
+                    print(f"⚠️ Ошибка OCR через API (попытка {attempt}/{max_attempts}): {e}")
 
-        # Парсер уже выбрал лучшие данные внутри метода parse()
-        # Не перезаписываем их данными из MRZ
+                if attempt < max_attempts:
+                    await asyncio.sleep(1)
+
+            if not p_data:
+                with suppress(Exception):
+                    await msg.delete()
+                temp_p = {}
+                if uploaded_path:
+                    temp_p["passport_image_path"] = uploaded_path
+                await state.update_data(temp_p=temp_p)
+                await message.answer(
+                    "⚠️ <b>Не удалось распознать паспорт через API</b>\n\n"
+                    "Пожалуйста, введите <b>Фамилию и Имя</b> вручную:",
+                    parse_mode="HTML"
+                )
+                await state.set_state(BookingFlow.waiting_manual_name)
+                return
+        else:
+            import asyncio
+
+            # 🔥 ТАЙМАУТ: Даем OCR максимум 30 секунд
+            async def parse_with_timeout():
+                parser = create_passport_parser(debug=(curr <= 3), save_ocr=True)
+                # Запускаем парсинг в отдельном потоке (parser.parse блокирующая функция)
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(None, parser.parse, path_for_ocr)
+
+            try:
+                passport_result = await asyncio.wait_for(parse_with_timeout(), timeout=30.0)
+            except asyncio.TimeoutError:
+                print(f"⏱️ OCR превысил таймаут 30 секунд")
+                with suppress(Exception):
+                    await msg.delete()
+                await state.update_data(temp_p={'passport_image_path': os.path.basename(original_path)})
+                await message.answer(
+                    "⏱️ <b>Распознавание заняло слишком много времени</b>\n\n"
+                    "Пожалуйста, введите <b>Фамилию и Имя</b> вручную:",
+                    parse_mode="HTML"
+                )
+                await state.set_state(BookingFlow.waiting_manual_name)
+                return
+
+            # 🔥 ИСПРАВЛЕНИЕ: Используем to_dict() для получения всех полей
+            p_data = passport_result.to_dict()
+            # В БД/сервере хотим хранить ОРИГИНАЛ (jpg/pdf), а PNG используем только для OCR.
+            p_data['passport_image_path'] = os.path.basename(original_path)
+
+            # Парсер уже выбрал лучшие данные внутри метода parse()
+            # Не перезаписываем их данными из MRZ
+
+            # Загружаем файл на API, если указан API_BASE_URL
+            if API_BASE_URL:
+                try:
+                    upload_url = f"{API_BASE_URL}/api/passports/upload"
+                    async with aiohttp.ClientSession() as session:
+                        # Загружаем ОРИГИНАЛЬНЫЙ файл, чтобы он сохранился без конвертации
+                        with open(original_path, "rb") as f:
+                            form = aiohttp.FormData()
+                            form.add_field("file", f, filename=os.path.basename(original_path))
+                            resp = await session.post(upload_url, data=form)
+                            res_json = await resp.json()
+                            if resp.status == 200 and res_json.get("ok") and res_json.get("path"):
+                                p_data['passport_image_path'] = res_json["path"]
+                                print(f"✅ Паспорт загружен на API: {res_json['path']}")
+                            else:
+                                print(f"⚠️ Не удалось загрузить паспорт на API: status={resp.status}, res={res_json}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка загрузки на API: {e}")
 
         # 🔥 КРИТИЧНО: Добавляем snake_case поля для writer.py
         p_data['last_name'] = p_data.get('Last Name', '-')
@@ -360,6 +413,9 @@ async def process_passport(message: Message, state: FSMContext):
         p_data['doc_num'] = p_data.get('Document Number', '-')
         p_data['doc_exp'] = p_data.get('Document Expiration', '-')
         p_data['iin'] = p_data.get('IIN', '-')
+
+        if 'passport_image_path' not in p_data or not p_data['passport_image_path']:
+            p_data['passport_image_path'] = uploaded_path or os.path.basename(original_path)
 
         # Логирование для проверки
         print(f"\n{'='*60}")
@@ -374,25 +430,6 @@ async def process_passport(message: Message, state: FSMContext):
         print(f"  📅 Срок действия:            {p_data.get('Document Expiration', 'НЕТ')}")
         print(f"  📸 Оригинал:                 {original_path}")
         print(f"{'='*60}\n")
-
-        # Загружаем файл на API, если указан API_BASE_URL
-        if API_BASE_URL:
-            try:
-                upload_url = f"{API_BASE_URL}/api/passports/upload"
-                async with aiohttp.ClientSession() as session:
-                    # Загружаем ОРИГИНАЛЬНЫЙ файл, чтобы он сохранился без конвертации
-                    with open(original_path, "rb") as f:
-                        form = aiohttp.FormData()
-                        form.add_field("file", f, filename=os.path.basename(original_path))
-                        resp = await session.post(upload_url, data=form)
-                        res_json = await resp.json()
-                        if resp.status == 200 and res_json.get("ok") and res_json.get("path"):
-                            p_data['passport_image_path'] = res_json["path"]
-                            print(f"✅ Паспорт загружен на API: {res_json['path']}")
-                        else:
-                            print(f"⚠️ Не удалось загрузить паспорт на API: status={resp.status}, res={res_json}")
-            except Exception as e:
-                print(f"⚠️ Ошибка загрузки на API: {e}")
 
         with suppress(Exception):
             await msg.delete()
@@ -463,7 +500,10 @@ async def process_passport(message: Message, state: FSMContext):
 
         with suppress(Exception):
             await msg.delete()
-        await state.update_data(temp_p={'passport_image_path': path})
+        temp_p = {}
+        if 'uploaded_path' in locals() and uploaded_path:
+            temp_p['passport_image_path'] = uploaded_path
+        await state.update_data(temp_p=temp_p)
         await message.answer("⚠️ Ошибка OCR. Введите Фамилию Имя:")
         await state.set_state(BookingFlow.waiting_manual_name)
 
