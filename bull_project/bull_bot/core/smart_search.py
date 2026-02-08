@@ -2,6 +2,7 @@ import time
 import asyncio
 from datetime import datetime
 from typing import Dict, List, Tuple
+import re
 
 from bull_project.bull_bot.core.google_sheets.client import (
     get_accessible_tables, get_sheet_names, get_packages_from_sheet
@@ -11,6 +12,24 @@ SHEETS_CACHE: Dict[str, Tuple[float, List[str]]] = {}
 SHEETS_TTL = 60 * 30  
 DATE_CACHE: Dict[str, Tuple[float, List[dict]]] = {}
 DATE_TTL = 60  
+
+_DATE_RANGE_RX = re.compile(r"^\s*\d{1,2}[./]\d{1,2}\s*[-–—]\s*\d{1,2}[./]\d{1,2}\s*")
+_DATE_RX = re.compile(r"^\s*\d{1,2}[./]\d{1,2}\s*")
+_BLOCKED_PREFIXES = ("ALA-JED", "BUS", "JED", "ALA", "MAD", "NQZ")
+
+def _normalize_pkg_title(name: str) -> str:
+    base = (name or "").split("[", 1)[0].strip()
+    if not base:
+        return ""
+    base = _DATE_RANGE_RX.sub("", base)
+    base = _DATE_RX.sub("", base)
+    return base.strip().upper()
+
+def _is_blocked_package(name: str) -> bool:
+    title = _normalize_pkg_title(name)
+    if not title:
+        return True
+    return any(title.startswith(prefix) for prefix in _BLOCKED_PREFIXES)
 
 def _norm_ddmm(s: str) -> str:
     s = (s or "").strip().replace("/", ".").replace(",", ".")
@@ -172,8 +191,12 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
                 "t": item["t"]
             })
 
-        DATE_CACHE[date_part] = (time.time(), collected)
-        return {"found": True, "data": collected}
+        filtered = [item for item in collected if not _is_blocked_package(item.get("n", ""))]
+        if not filtered:
+            return {"found": False, "error": "Рейсы не найдены."}
+
+        DATE_CACHE[date_part] = (time.time(), filtered)
+        return {"found": True, "data": filtered}
 
     except Exception as e:
         return {"found": False, "error": str(e)}
