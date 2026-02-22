@@ -12,7 +12,8 @@ PKG_KIND_ALIASES = {
         "niyet/10d", "niyet 10d", "niyet 10 days", "niyet /10 d"
     ],
     "niyet/7d": [
-        "niyet/7d", "niyet 7 days"
+        "niyet/7d", "niyet 7 days",
+        "акционный /7d", "акцион /7d", "акция /7d",
     ],
 
     # базовый NIYET
@@ -47,6 +48,8 @@ PKG_KIND_ALIASES = {
     "sco-med": ["sco-med", "sco med"],
     "ala-jed": ["ala-jed", "ala-med", "jed-med", "med-jed", "med-mak", "mak-med"],
     "standard": ["standard"],
+
+    "itikaf": ["itikaf"],
 }
 
 

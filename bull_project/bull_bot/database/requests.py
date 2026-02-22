@@ -1,5 +1,6 @@
 from sqlalchemy import select, desc, func, distinct, or_, text
 from datetime import datetime, timedelta
+import re
 from .models import User, Booking, Request4U, AdminSettings, ApprovalRequest, AdminRequestInbox, OpenDateBooking
 from .setup import async_session, engine
 
@@ -779,6 +780,45 @@ async def get_full_analytics(start_date, end_date):
             "package_sales_full": package_sales_full,
         }
 
+_DATE_RANGE_RX = re.compile(r"^\s*\d{1,2}[./]\d{1,2}\s*[-–—]\s*\d{1,2}[./]\d{1,2}\s*")
+_DATE_RX = re.compile(r"^\s*\d{1,2}[./]\d{1,2}\s*")
+
+def _normalize_package_title(name: str) -> str:
+    base = (name or "").split("[", 1)[0].strip()
+    if not base:
+        return ""
+    base = _DATE_RANGE_RX.sub("", base)
+    base = _DATE_RX.sub("", base)
+    return base.strip().upper()
+
+def _package_group(name: str) -> str:
+    base = _normalize_package_title(name)
+    if not base:
+        return "UNKNOWN"
+
+    # Niyet family with sub-types
+    if "NIYET" in base:
+        if "COMFORT" in base or "КОМФОРТ" in base:
+            return "NIYET COMFORT"
+        if "ECON" in base or "ЭКОНОМ" in base:
+            return "NIYET ECONOM"
+        if "PREMIUM" in base or "ПРЕМИУМ" in base:
+            return "NIYET PREMIUM"
+        return "NIYET"
+
+    if "HIKMA" in base:
+        return "HIKMA"
+    if "IZI" in base:
+        return "IZI"
+    if "4U" in base or "4 YOU" in base:
+        return "4U"
+    if "AMAL" in base:
+        return "AMAL"
+
+    # fallback: first token
+    token = re.split(r"[^\w]+", base, maxsplit=1)[0]
+    return token or "OTHER"
+
 async def get_manager_detailed_stats(manager_id: int, start_date, end_date):
     """Детальная статистика по конкретному менеджеру"""
     async with async_session() as session:
@@ -813,12 +853,24 @@ async def get_manager_detailed_stats(manager_id: int, start_date, end_date):
         )
         manager_top_packages = (await session.execute(top_packages_stmt)).all()
 
+        grouped_counts = {}
+        for pkg_name, cnt in manager_top_packages:
+            group = _package_group(pkg_name or "")
+            grouped_counts[group] = grouped_counts.get(group, 0) + (cnt or 0)
+
+        package_rollup = sorted(
+            grouped_counts.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
         return {
             "total": len(all_bookings),
             "active": active_count,
             "cancelled": cancelled_count,
             "rescheduled": rescheduled_count,
             "top_packages": [(name, cnt) for name, cnt in manager_top_packages],
+            "package_rollup": package_rollup,
             "bookings": all_bookings
         }
 

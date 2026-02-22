@@ -21,8 +21,18 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY bull_project /app/bull_project
 
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
-    && chown -R appuser:appuser /app
+    && mkdir -p /home/appuser/.EasyOCR \
+    && chown -R appuser:appuser /app /home/appuser
+
 USER appuser
+ENV HOME=/home/appuser
+
+RUN python - <<'PY'
+import easyocr
+print("Preloading EasyOCR models (en, ru)...")
+easyocr.Reader(['en', 'ru'], gpu=False)
+print("EasyOCR models ready.")
+PY
 
 EXPOSE 8000
 

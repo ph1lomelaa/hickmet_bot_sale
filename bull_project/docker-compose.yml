@@ -9,24 +9,18 @@ services:
     restart: always
     depends_on:
       - db
+    env_file: .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://bull:password@db:5432/bull_db
       - SKIP_BOT=true
       - PASSPORT_ENGINE=easyocr
       - POPPLER_PATH=/usr/bin
-      - OMP_NUM_THREADS=1
-      - MKL_NUM_THREADS=1
-      - OPENBLAS_NUM_THREADS=1
-      - NUMEXPR_NUM_THREADS=1
-      - TORCH_NUM_THREADS=1
     command: uvicorn bull_project.bull_bot.core.api_server:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
-    cpus: "1.0"
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
+    volumes:
+      - /data/booking_cards:/app/bull_project/bull_bot/tmp/booking_cards
+      - /data/uploads:/app/bull_project/bull_bot/tmp/uploads
 
   worker:
     build:
@@ -36,26 +30,20 @@ services:
     restart: always
     depends_on:
       - db
+    env_file: .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://bull:password@db:5432/bull_db
       - SKIP_BOT=false
       - PASSPORT_ENGINE=easyocr
       - POPPLER_PATH=/usr/bin
       - OCR_API_URL=http://api:8000
-      - OMP_NUM_THREADS=1
-      - MKL_NUM_THREADS=1
-      - OPENBLAS_NUM_THREADS=1
-      - NUMEXPR_NUM_THREADS=1
-      - TORCH_NUM_THREADS=1
     command: python -m bull_project.bull_bot.main
-    cpus: "1.0"
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
+    volumes:
+      - /data/booking_cards:/app/bull_project/bull_bot/tmp/booking_cards
+      - /data/uploads:/app/bull_project/bull_bot/tmp/uploads
 
   db:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     container_name: bull_postgres
     restart: always
     environment:
@@ -63,7 +51,30 @@ services:
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=bull_db
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - /data/postgres17:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /root/hickmet/bull_project/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
 volumes:
-  postgres_data:
+  caddy_data:
+  caddy_config:

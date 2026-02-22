@@ -103,6 +103,7 @@ async def get_manager_stats(
             "active": stats['active'],
             "cancelled": stats['cancelled'],
             "top_packages": stats['top_packages'],
+            "package_rollup": stats.get('package_rollup', []),
             "bookings": bookings_data
         }
 

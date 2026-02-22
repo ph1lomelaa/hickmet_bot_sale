@@ -925,6 +925,7 @@
         let allBookingsData = [];
         let currentStatusFilter = 'all';
         let currentManagerId = null;
+        let currentManagerName = null;
 
         // Обёртка для fetch с заголовками ngrok
         async function apiFetch(url, options = {}) {
@@ -1146,6 +1147,30 @@
             container.innerHTML = html;
         }
 
+        function renderManagerRollup(items) {
+            if (!items || !items.length) {
+                return '<p style="padding:16px;color:var(--text-secondary);">Нет данных по пакетам</p>';
+            }
+            let html = '<table><thead><tr><th>Группа</th><th>Кол-во</th></tr></thead><tbody>';
+            items.forEach(([name, count]) => {
+                html += `<tr><td>${name}</td><td><strong>${count}</strong></td></tr>`;
+            });
+            html += '</tbody></table>';
+            return html;
+        }
+
+        function renderManagerPackageDetails(items) {
+            if (!items || !items.length) {
+                return '<p style="padding:16px;color:var(--text-secondary);">Нет данных по пакетам</p>';
+            }
+            let html = '<table><thead><tr><th>Пакет</th><th>Кол-во</th></tr></thead><tbody>';
+            items.forEach(([name, count]) => {
+                html += `<tr><td>${name || '-'}</td><td><strong>${count}</strong></td></tr>`;
+            });
+            html += '</tbody></table>';
+            return html;
+        }
+
         function togglePkgManagers(idx) {
             const row = document.getElementById(`pkg-mgr-${idx}`);
             if (!row) return;
@@ -1205,6 +1230,7 @@
             document.getElementById('managers-list').style.display = 'none';
             document.getElementById('manager-detail').style.display = 'block';
             currentManagerId = managerId;
+            currentManagerName = managerName;
             const historyBtn = document.getElementById('open-history-btn');
             if (historyBtn) historyBtn.disabled = false;
 
@@ -1214,6 +1240,20 @@
             const startDate = startDateObj.toISOString().split('T')[0];
             const endDate = endDateObj.toISOString().split('T')[0];
 
+            await loadManagerStats(managerId, managerName, startDate, endDate);
+        }
+
+        async function reloadManagerStats() {
+            if (!currentManagerId) return;
+            const startInput = document.getElementById('manager-start-date');
+            const endInput = document.getElementById('manager-end-date');
+            const startDate = startInput?.value;
+            const endDate = endInput?.value;
+            if (!startDate || !endDate) return;
+            await loadManagerStats(currentManagerId, currentManagerName || '-', startDate, endDate);
+        }
+
+        async function loadManagerStats(managerId, managerName, startDate, endDate) {
             try {
                 const response = await apiFetch(`${API_BASE}/api/admin/manager/${managerId}?start_date=${startDate}&end_date=${endDate}`);
                 const data = await response.json();
@@ -1221,6 +1261,11 @@
                 if (data.ok) {
                     let html = `
                         <h2>${managerName}</h2>
+                        <div class="date-selector">
+                            <input type="date" id="manager-start-date" value="${startDate}" />
+                            <input type="date" id="manager-end-date" value="${endDate}" />
+                            <button class="btn" onclick="reloadManagerStats()">Загрузить</button>
+                        </div>
                         <div class="stats-grid">
                             <div class="stat-card">
                                 <h3>Всего броней</h3>
@@ -1233,6 +1278,20 @@
                             <div class="stat-card variant-3">
                                 <h3>Отменено</h3>
                                 <div class="value">${data.cancelled}</div>
+                            </div>
+                        </div>
+
+                        <div class="table-container">
+                            <h3 style="margin: 20px; color: var(--accent-dark);">Сводка по типам пакетов</h3>
+                            <div id="manager-rollup-container">
+                                ${renderManagerRollup(data.package_rollup || [])}
+                            </div>
+                        </div>
+
+                        <div class="table-container">
+                            <h3 style="margin: 20px; color: var(--accent-dark);">Детально по пакетам</h3>
+                            <div id="manager-packages-container">
+                                ${renderManagerPackageDetails(data.top_packages || [])}
                             </div>
                         </div>
 
@@ -1295,6 +1354,7 @@
             document.getElementById('managers-list').style.display = 'block';
             document.getElementById('manager-detail').style.display = 'none';
             currentManagerId = null;
+            currentManagerName = null;
             const historyBtn = document.getElementById('open-history-btn');
             if (historyBtn) historyBtn.disabled = true;
         }

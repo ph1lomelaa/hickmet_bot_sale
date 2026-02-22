@@ -491,6 +491,132 @@
             transform: translateY(-2px);
             box-shadow: 0 6px 16px rgba(107, 93, 82, 0.3);
         }
+
+        /* Список пакетов */
+        .package-panel {
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: 16px;
+            border: 2px solid var(--border-color);
+            background: linear-gradient(180deg, #FFFFFF 0%, var(--bg-secondary) 100%);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .package-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .package-count {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-dark);
+            letter-spacing: 0.3px;
+        }
+
+        .package-filter {
+            flex: 1;
+            min-width: 180px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border-color);
+            background: #FFFFFF;
+            font-size: 13px;
+            box-shadow: none;
+        }
+
+        .package-list {
+            margin-top: 12px;
+            display: grid;
+            gap: 10px;
+            max-height: 320px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .package-card {
+            border: 2px solid var(--border-color);
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: #FFFFFF;
+            box-shadow: var(--shadow-soft);
+            cursor: pointer;
+            transition: all 0.25s ease;
+            animation: packageIn 0.25s ease forwards;
+            animation-delay: var(--delay, 0s);
+            opacity: 0;
+            transform: translateY(4px);
+        }
+
+        .package-card:hover {
+            border-color: var(--accent-light);
+            box-shadow: var(--shadow-medium);
+            transform: translateY(-2px);
+        }
+
+        .package-card.is-active {
+            border-color: var(--accent-dark);
+            background: linear-gradient(135deg, var(--accent-brown) 0%, var(--accent-dark) 100%);
+            color: #FFFFFF;
+        }
+
+        .package-title {
+            font-size: 15px;
+            font-weight: 700;
+            line-height: 1.35;
+            letter-spacing: 0.2px;
+        }
+
+        .package-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .package-chip {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: rgba(155, 132, 116, 0.12);
+            border: 1px solid rgba(155, 132, 116, 0.25);
+            color: var(--accent-dark);
+        }
+
+        .package-card.is-active .package-chip {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.5);
+            color: #FFFFFF;
+        }
+
+        .package-empty {
+            margin-top: 10px;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px dashed var(--border-color);
+            background: rgba(255, 255, 255, 0.7);
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .package-panel.is-locked {
+            opacity: 0.75;
+        }
+
+        .package-panel.is-locked .package-card {
+            pointer-events: none;
+        }
+
+        @keyframes packageIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
         
         /* Кнопка "Назад" */
         .back-btn {
@@ -729,6 +855,15 @@
         <select id="pkg_name" disabled>
             <option value="">Сначала введите дату</option>
         </select>
+
+        <div class="package-panel" id="package_panel" style="display: none;">
+            <div class="package-toolbar">
+                <div class="package-count" id="pkg_count">Пакеты</div>
+                <input type="text" id="pkg_filter" class="package-filter" placeholder="Фильтр по названию">
+            </div>
+            <div class="package-list" id="pkg_list" role="listbox" aria-label="Список пакетов"></div>
+            <div class="package-empty" id="pkg_empty" style="display: none;">Пакеты не найдены</div>
+        </div>
     </div>
 
     <input type="hidden" id="sheet_name_hidden">
@@ -956,6 +1091,14 @@
     const managerSelect = document.getElementById('manager_select');
     const managerCustomInput = document.getElementById('manager_custom_input');
     const managerHiddenInput = document.getElementById('manager_name_text');
+    const pkgSelect = document.getElementById('pkg_name');
+    const pkgPanel = document.getElementById('package_panel');
+    const pkgList = document.getElementById('pkg_list');
+    const pkgCount = document.getElementById('pkg_count');
+    const pkgFilter = document.getElementById('pkg_filter');
+    const pkgEmpty = document.getElementById('pkg_empty');
+
+    let packageCache = [];
 
     function renderManagerOptions() {
         const options = ['<option value="">Выберите менеджера</option>',
@@ -975,6 +1118,109 @@
             managerCustomInput.value = '';
             managerHiddenInput.value = managerSelect.value;
         }
+    }
+
+    function splitPackageName(name) {
+        const raw = (name || '').trim();
+        if (!raw) return { title: '', context: '' };
+        const idx = raw.lastIndexOf('[');
+        if (idx > 0 && raw.endsWith(']')) {
+            return {
+                title: raw.slice(0, idx).trim(),
+                context: raw.slice(idx + 1, -1).trim()
+            };
+        }
+        return { title: raw, context: '' };
+    }
+
+    function shouldSkipPackage(name) {
+        const { title } = splitPackageName(name);
+        if (!title) return true;
+
+        const raw = title.trim().toUpperCase();
+        const dateRangeRx = /^\d{1,2}[./]\d{1,2}\s*[-–—]\s*\d{1,2}[./]\d{1,2}\s*/;
+        const dateRx = /^\d{1,2}[./]\d{1,2}\s*/;
+        const hasDatePrefix = dateRangeRx.test(raw) || dateRx.test(raw);
+
+        // Убираем ведущие даты/диапазоны дат, чтобы фильтр работал по маршруту
+        const normalized = raw.replace(dateRangeRx, '').replace(dateRx, '');
+
+        // Эти префиксы скрываем всегда
+        const alwaysBlocked = ['ALA-JED', 'BUS', 'JED', 'ALA', 'MAD', 'NQZ'];
+        if (alwaysBlocked.some(prefix => normalized.startsWith(prefix))) return true;
+
+        // HIKMA/NIYET скрываем только если НЕТ даты в начале
+        const blockedWithoutDate = ['HIKMA', 'NIYET'];
+        if (!hasDatePrefix && blockedWithoutDate.some(prefix => normalized.startsWith(prefix))) return true;
+
+        return false;
+    }
+
+    function highlightPackage(value) {
+        if (!pkgList) return;
+        pkgList.querySelectorAll('.package-card').forEach(card => {
+            card.classList.toggle('is-active', card.dataset.value === value);
+        });
+    }
+
+    function renderPackageList(items, selectedValue) {
+        if (!pkgPanel || !pkgList || !pkgCount || !pkgEmpty) return;
+
+        pkgPanel.style.display = 'block';
+        const list = items || [];
+        pkgCount.textContent = list.length ? `Найдено пакетов: ${list.length}` : 'Пакеты';
+
+        pkgList.innerHTML = '';
+        if (!list.length) {
+            pkgEmpty.style.display = 'block';
+            pkgList.style.display = 'none';
+            return;
+        }
+
+        pkgEmpty.style.display = 'none';
+        pkgList.style.display = 'grid';
+
+        const frag = document.createDocumentFragment();
+        list.forEach((item, idx) => {
+            const card = document.createElement('div');
+            card.className = 'package-card';
+            card.dataset.value = item.n;
+            if (item.n === selectedValue) card.classList.add('is-active');
+            card.style.setProperty('--delay', `${Math.min(idx, 8) * 0.03}s`);
+
+            const { title, context } = splitPackageName(item.n);
+            const meta = [];
+            if (context) {
+                meta.push(`Источник: ${context}`);
+            } else if (item.s) {
+                meta.push(`Лист: ${item.s}`);
+            }
+            if (item.d) {
+                meta.push(`Дата: ${item.d}`);
+            }
+
+            card.innerHTML = `
+                <div class="package-title">${title}</div>
+                ${meta.length ? `<div class="package-meta">${meta.map(m => `<span class="package-chip">${m}</span>`).join('')}</div>` : ''}
+            `;
+
+            card.addEventListener('click', () => {
+                if (pkgSelect) {
+                    pkgSelect.value = item.n;
+                    pkgSelect.dispatchEvent(new Event('change'));
+                }
+                highlightPackage(item.n);
+            });
+
+            frag.appendChild(card);
+        });
+        pkgList.appendChild(frag);
+    }
+
+    function setPackagePanelLocked(isLocked) {
+        if (!pkgPanel || !pkgFilter) return;
+        pkgPanel.classList.toggle('is-locked', isLocked);
+        pkgFilter.disabled = isLocked;
     }
 
     function setManagerName(name) {
@@ -1006,6 +1252,14 @@
 
     renderManagerOptions();
 
+    if (pkgFilter) {
+        pkgFilter.addEventListener('input', () => {
+            const query = (pkgFilter.value || '').trim().toLowerCase();
+            const filtered = packageCache.filter(item => (item.n || '').toLowerCase().includes(query));
+            renderPackageList(filtered, pkgSelect ? pkgSelect.value : '');
+        });
+    }
+
     // --- ПОИСК ПАКЕТОВ ---
     async function handleSearch() {
         let date = document.getElementById('date_input').value.trim().replace(/[\/\s,]/g, '.');
@@ -1013,21 +1267,38 @@
 
         if (date.length < 5) return alert("Введите дату полностью (напр. 13.12)");
 
-        const sel = document.getElementById('pkg_name');
+        const sel = pkgSelect || document.getElementById('pkg_name');
         sel.innerHTML = '<option class="loading">⏳ Поиск пакетов...</option>';
+        if (pkgFilter) pkgFilter.value = '';
+        setPackagePanelLocked(false);
+        renderPackageList([], '');
 
         try {
             const r = await fetch(`${API_URL}/api/packages?date=${date}`, { headers: {"ngrok-skip-browser-warning":"1"} });
             const res = await r.json();
 
             if (res.found) {
+                const filtered = (res.data || []).filter(i => !shouldSkipPackage(i.n));
+                if (!filtered.length) {
+                    sel.innerHTML = '<option>❌ Нет подходящих пакетов</option>';
+                    sel.disabled = true;
+                    packageCache = [];
+                    renderPackageList([], '');
+                    return;
+                }
+
                 sel.disabled = false;
-                sel.innerHTML = res.data.map(i => `<option value="${i.n}" data-sheet="${i.s}" data-table="${i.t}">${i.n}</option>`).join('');
-                document.getElementById('sheet_name_hidden').value = res.data[0].s;
-                document.getElementById('table_id_hidden').value = res.data[0].t;
+                sel.innerHTML = filtered.map(i => `<option value="${i.n}" data-sheet="${i.s}" data-table="${i.t}">${i.n}</option>`).join('');
+                sel.value = filtered[0].n;
+                document.getElementById('sheet_name_hidden').value = filtered[0].s;
+                document.getElementById('table_id_hidden').value = filtered[0].t;
+                packageCache = filtered;
+                renderPackageList(packageCache, sel.value);
             } else {
                 sel.innerHTML = '<option>❌ Нет рейсов</option>';
                 sel.disabled = true;
+                packageCache = [];
+                renderPackageList([], '');
             }
         } catch(e) { alert("Ошибка связи с сервером"); }
     }
@@ -1042,6 +1313,7 @@
         const opt = e.target.options[e.target.selectedIndex];
         document.getElementById('sheet_name_hidden').value = opt.dataset.sheet;
         document.getElementById('table_id_hidden').value = opt.dataset.table;
+        highlightPackage(e.target.value);
     };
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -1700,6 +1972,7 @@
         const pkgSelect = document.getElementById('pkg_name');
         if (dateInput) dateInput.disabled = true;
         if (pkgSelect) pkgSelect.disabled = true;
+        setPackagePanelLocked(true);
         const notice = document.getElementById('edit_notice');
         if (notice) notice.style.display = 'block';
     }
@@ -1726,6 +1999,15 @@
                 pkgSelect.innerHTML = `<option value="${booking.package_name}">${booking.package_name}</option>`;
                 pkgSelect.value = booking.package_name;
                 pkgSelect.disabled = true;
+
+                packageCache = [{
+                    n: booking.package_name,
+                    s: booking.sheet_name || '',
+                    t: booking.table_id || '',
+                    d: ''
+                }];
+                renderPackageList(packageCache, booking.package_name);
+                setPackagePanelLocked(true);
             }
 
             if (booking.sheet_name) {

@@ -287,7 +287,7 @@ PKG_KIND_ALIASES = {
         "niyet", "ниет", "niyet economy", "niyet econom",
         "акцион", "акция", "акционный", "akcion",
     ],
-    "niyet/7d": ["niyet/7d", "niyet 7 days"],
+    "niyet/7d": ["niyet/7d", "niyet 7 days", "акционный /7d", "акцион /7d", "акция /7d"],
     "niyet/10d": ["niyet /10 d"],
     "hikma": ["hikma", "хикма"],
     "izi": [

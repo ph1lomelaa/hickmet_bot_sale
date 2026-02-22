@@ -87,12 +87,17 @@ def get_packages_from_sheet(spreadsheet_id: str, sheet_name: str) -> dict:
         ws = _get_worksheet_by_title(ss, sheet_name)
         data = ws.get('A1:F200')
 
+        import re as _re
+        _DATE_ONLY_RE = _re.compile(
+            r'^\d{1,2}[./]\d{1,2}(\s*[-–—]\s*\d{1,2}[./]\d{1,2})?\s*$'
+        )
+
         packages = {}
         package_keywords = [
             "niyet", "hikma", "izi", "4u", "premium", "econom",
             "стандарт", "эконом", "акцион", "comfort",
             "ramadan", "рамадан", "ramazan", "ramad",
-            "park", "regis", "itikaf"  # Добавили новые отели
+            "park", "regis", "itikaf", "7d", "10d",
         ]
 
         for idx, row in enumerate(data, start=1):
@@ -102,8 +107,19 @@ def get_packages_from_sheet(spreadsheet_id: str, sheet_name: str) -> dict:
             text_full = " ".join([str(x) for x in row]).lower()
 
             if any(k in text_full for k in package_keywords):
-                raw_name = row[0] if row and row[0] else (row[1] if len(row) > 1 else "Unknown")
-                clean_name = str(raw_name).strip().replace("\n", " ")
+                col0 = str(row[0]).strip() if row and row[0] else ""
+                if col0:
+                    # Если колонка A — только дата/диапазон дат, добавляем тип из колонки B+
+                    if _DATE_ONLY_RE.match(col0):
+                        for col in row[1:]:
+                            extra = str(col).strip()
+                            if extra and not _DATE_ONLY_RE.match(extra):
+                                col0 = f"{col0} {extra}"
+                                break
+                    raw_name = col0
+                else:
+                    raw_name = str(row[1]).strip() if len(row) > 1 and row[1] else "Unknown"
+                clean_name = raw_name.replace("\n", " ")
                 if len(clean_name) > 3:
                     packages[idx] = clean_name
 
@@ -131,6 +147,13 @@ def get_packages_from_sheet(spreadsheet_id: str, sheet_name: str) -> dict:
                             raw_name = str(prev_row[0]).strip()
                             # Проверяем что название начинается с даты
                             if date_pattern.match(raw_name):
+                                # Если только дата — добавляем тип из следующей колонки
+                                if _DATE_ONLY_RE.match(raw_name):
+                                    for col in prev_row[1:]:
+                                        extra = str(col).strip()
+                                        if extra and not _DATE_ONLY_RE.match(extra):
+                                            raw_name = f"{raw_name} {extra}"
+                                            break
                                 clean_name = raw_name.replace("\n", " ")
                                 packages[idx] = clean_name
                                 break
@@ -157,9 +180,6 @@ def get_sheet_data(sheet_id: str, sheet_name: str):
         return []
 
 def _get_worksheet_by_title(spreadsheet, sheet_name: str):
-    """
-    Пытается найти лист, игнорируя лишние пробелы/регистр.
-    """
     normalized = (sheet_name or "").strip()
     if not normalized:
         raise WorksheetNotFound("Sheet name is empty")
@@ -174,5 +194,4 @@ def _get_worksheet_by_title(spreadsheet, sheet_name: str):
         raise
 
 def get_worksheet_by_title(spreadsheet, sheet_name: str):
-    """Публичная обертка для других модулей."""
     return _get_worksheet_by_title(spreadsheet, sheet_name)
