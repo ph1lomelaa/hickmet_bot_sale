@@ -303,6 +303,7 @@ PKG_KIND_ALIASES = {
     "sco-med": ["sco-med", "sco med"],
     "ala-jed": ["ala-jed", "ala-med", "jed-med", "med-jed", "med-mak", "mak-med"],
     "standard": ["standard"],
+    "millenium": ["millenium", "millennium", "millenium/ 7 days", "millennium/ 7 days", "millenium/7 days", "millennium/7 days"],
 }
 
 NAME_COMBINED_RE = re.compile(r"\b(фио|имя\s*и\s*фамилия|guest.?name|name)\b", re.I)

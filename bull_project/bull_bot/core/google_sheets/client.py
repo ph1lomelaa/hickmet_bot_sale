@@ -98,6 +98,7 @@ def get_packages_from_sheet(spreadsheet_id: str, sheet_name: str) -> dict:
             "стандарт", "эконом", "акцион", "comfort",
             "ramadan", "рамадан", "ramazan", "ramad",
             "park", "regis", "itikaf", "7d", "10d",
+            "millenium", "millennium",
         ]
 
         for idx, row in enumerate(data, start=1):
