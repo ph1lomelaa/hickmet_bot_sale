@@ -4,6 +4,110 @@ from bull_project.bull_bot.core.parsers.people_parser import _norm_room_kind
 def normalize(text):
     return str(text).replace("\n", " ").replace("\r", " ").strip().lower()
 
+
+_PACKAGE_DATE_RANGE_RE = re.compile(r"\b(\d{1,2}[./]\d{1,2})\s*[-–—]\s*(\d{1,2}[./]\d{1,2})\b")
+_PACKAGE_FAMILY_PATTERNS = {
+    "niyet": (r"\bniyet\b", r"\bниет\b"),
+    "hikma": (r"\bhikma\b", r"\bхикма\b"),
+    "izi": (r"\bizi\b",),
+    "4u": (r"\b4u\b", r"\b4\s*u\b", r"\b4\s*you\b"),
+    "amal": (r"\bamal\b", r"\bамал\b"),
+    "aroya": (r"\baroya\b", r"\bароя\b"),
+    "aa": (r"\baa\b",),
+}
+_PACKAGE_VARIANT_PATTERNS = {
+    "econom": (r"\beconomy\b", r"\beconom\b", r"\bэконом\b"),
+    "comfort": (r"\bcomfort\b", r"\bкомфорт\b"),
+    "premium": (r"\bpremium\b", r"\bпремиум\b"),
+    "7d": (r"\b7\s*d\b", r"\b7\s*days\b", r"/\s*7\s*d\b"),
+    "10d": (r"\b10\s*d\b", r"\b10\s*days\b", r"/\s*10\s*d\b"),
+}
+_PACKAGE_TEXT_REPLACEMENTS = (
+    (re.compile(r"\b4\s*you\b", re.I), "4u"),
+    (re.compile(r"\b4\s*u\b", re.I), "4u"),
+    (re.compile(r"\b7\s*days\b", re.I), "7d"),
+    (re.compile(r"\b10\s*days\b", re.I), "10d"),
+    (re.compile(r"/\s*7\s*d\b", re.I), " 7d"),
+    (re.compile(r"/\s*10\s*d\b", re.I), " 10d"),
+    (re.compile(r"\beconomy\b", re.I), "econom"),
+    (re.compile(r"\bэконом\b", re.I), "econom"),
+)
+
+
+def _normalize_package_text(text):
+    return re.sub(r"[\s\u00A0\u202F]+", " ", str(text).replace("\n", " ").replace("\r", " ")).strip().lower()
+
+
+def _normalize_package_date(value):
+    raw = str(value or "").strip().replace("/", ".")
+    parts = raw.split(".")
+    if len(parts) != 2:
+        return raw
+    day, month = parts
+    if not (day.isdigit() and month.isdigit()):
+        return raw
+    return f"{int(day):02d}.{int(month):02d}"
+
+
+def _extract_package_signature(text):
+    normalized = _normalize_package_text(text)
+    match = _PACKAGE_DATE_RANGE_RE.search(normalized)
+
+    date_range = None
+    tail = normalized
+    if match:
+        date_range = f"{_normalize_package_date(match.group(1))}-{_normalize_package_date(match.group(2))}"
+        tail = f"{normalized[:match.start()]} {normalized[match.end():]}"
+
+    tail = re.sub(r"[\[\](){},;|]+", " ", tail)
+    for pattern, replacement in _PACKAGE_TEXT_REPLACEMENTS:
+        tail = pattern.sub(replacement, tail)
+    tail = _normalize_package_text(tail)
+
+    family = None
+    for family_name, patterns in _PACKAGE_FAMILY_PATTERNS.items():
+        if any(re.search(pattern, tail, re.I) for pattern in patterns):
+            family = family_name
+            break
+
+    variants = {
+        variant_name
+        for variant_name, patterns in _PACKAGE_VARIANT_PATTERNS.items()
+        if any(re.search(pattern, tail, re.I) for pattern in patterns)
+    }
+
+    return {
+        "raw": normalized,
+        "date": date_range,
+        "tail": tail,
+        "family": family,
+        "variants": variants,
+    }
+
+
+def _package_signatures_match(candidate, target):
+    if target["date"] and candidate["date"] and candidate["date"] != target["date"]:
+        return False
+    if target["family"] and candidate["family"] and candidate["family"] != target["family"]:
+        return False
+    if candidate["variants"] != target["variants"]:
+        return False
+    if target["tail"]:
+        return candidate["tail"] == target["tail"]
+    return False
+
+
+def _package_signatures_compatible(candidate, target):
+    if target["date"] and candidate["date"] and candidate["date"] != target["date"]:
+        return False
+    if target["family"] and candidate["family"] and candidate["family"] != target["family"]:
+        return False
+    if candidate["variants"] != target["variants"]:
+        return False
+    if target["tail"]:
+        return target["tail"] in candidate["tail"]
+    return False
+
 # === КАРТА ЗАГОЛОВКОВ ===
 HEADER_MAP = {
     "last_name": ["last name", "lastname", "фамилия", "names"],
@@ -54,7 +158,13 @@ def normalize_room_value(value):
 def find_package_row(all_rows, target_pkg_name):
     """Поиск строки с названием пакета"""
     target = normalize(target_pkg_name)
+    target_signature = _extract_package_signature(target_pkg_name)
     print(f"🔍 Ищем пакет: '{target}'")
+    print(
+        "   Сигнатура пакета:",
+        f"date={target_signature['date']!r}, family={target_signature['family']!r},",
+        f"variants={sorted(target_signature['variants'])}, tail={target_signature['tail']!r}"
+    )
 
     # 🔥 ОТЛАДКА: Показываем первые 30 строк с датами
     print(f"📋 Первые строки таблицы (отладка):")
@@ -64,20 +174,34 @@ def find_package_row(all_rows, target_pkg_name):
         if row_text and len(row_text) > 3 and row_text[0].isdigit():
             print(f"  Строка {i+1}: {row_text[:120]}")
 
-    # 🔥 Расширили поиск с 5 до 10 колонок
+    # 1. Сначала ищем точное совпадение нормализованного названия пакета.
     for i, row in enumerate(all_rows):
-        row_text = normalize(" ".join(row[:10]))
-        if target in row_text:
-            print(f"✅ Найден пакет в строке {i+1}: {row_text[:100]}")
+        row_text = _normalize_package_text(" ".join(row[:10]))
+        row_signature = _extract_package_signature(row_text)
+        if _package_signatures_match(row_signature, target_signature):
+            print(f"✅ Найден пакет по точной сигнатуре в строке {i+1}: {row_text[:100]}")
             return i
 
-    # Попытка найти по ключевому слову
+    # 2. Fallback: совместимое совпадение по тексту без конфликта по типу пакета.
+    for i, row in enumerate(all_rows):
+        row_text = _normalize_package_text(" ".join(row[:10]))
+        row_signature = _extract_package_signature(row_text)
+        if target in row_text and _package_signatures_compatible(row_signature, target_signature):
+            print(f"✅ Найден пакет по совместимому совпадению в строке {i+1}: {row_text[:100]}")
+            return i
+
+    # 3. Последний fallback: по ключевому слову, но всё ещё без конфликта по сигнатуре.
     parts = target.split()
     if len(parts) > 1:
         keyword = parts[-1]
         for i, row in enumerate(all_rows):
-            row_text = normalize(" ".join(row[:10]))  # 🔥 Расширили поиск
-            if keyword in row_text and any(c.isdigit() for c in row_text):
+            row_text = _normalize_package_text(" ".join(row[:10]))  # 🔥 Расширили поиск
+            row_signature = _extract_package_signature(row_text)
+            if (
+                keyword in row_text
+                and any(c.isdigit() for c in row_text)
+                and _package_signatures_compatible(row_signature, target_signature)
+            ):
                 print(f"✅ Найден пакет (по ключевому слову) в строке {i+1}: {row_text[:80]}")
                 return i
 
@@ -104,7 +228,7 @@ def find_headers_extended(row):
                 cols[key] = col_idx
 
     # Должна быть колонка "room" и хотя бы одна из: last_name/first_name/gender
-    if "room" in cols and (cols.get("last_name") or cols.get("first_name") or cols.get("gender")):
+    if "room" in cols and any(key in cols for key in ("last_name", "first_name", "gender")):
         print(f"✅ Заголовки найдены: {list(cols.keys())}")
         return cols
 
@@ -332,7 +456,7 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
     print(f"{'='*60}\n")
 
     header_row, end_row, cols = get_package_block(all_rows, target_pkg_name)
-    if not header_row:
+    if header_row is None:
         print("❌ Не удалось найти блок пакета")
         return []
 
@@ -673,7 +797,7 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
     print(f"{'='*60}\n")
 
     header_row, end_row, cols = get_package_block(all_rows, target_pkg_name)
-    if not header_row:
+    if header_row is None:
         print("❌ Не удалось найти блок пакета")
         return None, None, "error"
 
@@ -832,7 +956,7 @@ def get_open_rooms_for_manual_selection(all_rows, pkg_name, needed_count=1, need
     col_first = cols.get("first_name")
     col_gender = cols.get("gender")
 
-    if not all([col_room, col_last]):
+    if col_room is None or col_last is None:
         print(f"❌ Не хватает колонок: room={col_room}, last_name={col_last}")
         return []
 
