@@ -536,16 +536,15 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
             print(f"   ❌ Нет свободных мест в комнатах типа {target_room}")
             print(f"   Шаг 3: Пробуем трансформацию или fallback типы")
             fallback_slot, _, mode = find_best_slot(all_rows, target_pkg_name, gender_norm, target_room_type)
-            if fallback_slot:
+            if fallback_slot and mode.startswith("trans_"):
                 result_rows.append(fallback_slot)
                 idx = fallback_slot - 1
                 if idx < len(all_rows):
                     all_rows[idx][col_last] = "RESERVED"
                     if col_gender:
                         all_rows[idx][col_gender] = gender_norm
-                if mode.startswith("trans_"):
-                    pending_transforms.append({"start_row": fallback_slot, "mode": mode})
-                print(f"   ✅ Найден слот через {mode}: строка {fallback_slot}")
+                pending_transforms.append({"start_row": fallback_slot, "mode": mode})
+                print(f"   ✅ Трансформация {mode}: строка {fallback_slot}")
                 print(f"\n✅ Группа размещена! Строки: {result_rows}")
                 return result_rows, pending_transforms
 
@@ -564,10 +563,9 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
                     # Нет пустой комнаты — пробуем трансформацию
                     first_gender = normalize(group_data[placed_count].get('Gender', 'M')).upper() if placed_count < len(group_data) else 'M'
                     fallback_slot, _, mode = find_best_slot(all_rows, target_pkg_name, first_gender, target_room_type)
-                    if fallback_slot:
+                    if fallback_slot and mode.startswith("trans_"):
                         slot = fallback_slot
-                        if mode.startswith("trans_"):
-                            pending_transforms.append({"start_row": slot, "mode": mode})
+                        pending_transforms.append({"start_row": slot, "mode": mode})
                         print(f"   ✅ Трансформация {mode}: строка {slot}")
                     else:
                         print(f"❌ Не удалось найти свободную комнату (включая трансформации)")
@@ -588,10 +586,9 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
                 print(f"   Нет пустых {target_room}, пробуем трансформацию...")
                 first_gender = normalize(group_data[0].get('Gender', 'M')).upper() if group_data else 'M'
                 fallback_slot, _, mode = find_best_slot(all_rows, target_pkg_name, first_gender, target_room_type)
-                if fallback_slot:
+                if fallback_slot and mode.startswith("trans_"):
                     slot = fallback_slot
-                    if mode.startswith("trans_"):
-                        pending_transforms.append({"start_row": slot, "mode": mode})
+                    pending_transforms.append({"start_row": slot, "mode": mode})
                     print(f"   ✅ Трансформация {mode}: строка {slot}")
                 else:
                     print(f"❌ Нет свободных мест даже с трансформацией")
@@ -702,7 +699,7 @@ def place_gender_group(all_rows, header_row, end_row, cols, people, gender, targ
         if target_pkg_name:
             print(f"   Нет пустых {target_room} для пола {gender}, пробуем трансформацию...")
             fallback_slot, _, mode = find_best_slot(all_rows, target_pkg_name, gender, target_room)
-            if fallback_slot:
+            if fallback_slot and mode.startswith("trans_"):
                 for j in range(group_size):
                     result_rows.append(fallback_slot + j)
                     idx = fallback_slot - 1 + j
@@ -710,8 +707,7 @@ def place_gender_group(all_rows, header_row, end_row, cols, people, gender, targ
                         all_rows[idx][col_last] = "RESERVED"
                         if col_gender:
                             all_rows[idx][col_gender] = gender
-                if mode.startswith("trans_"):
-                    pending_transforms.append({"start_row": fallback_slot, "mode": mode})
+                pending_transforms.append({"start_row": fallback_slot, "mode": mode})
                 print(f"   ✅ Трансформация {mode}: строка {fallback_slot}")
                 return result_rows, pending_transforms
 
@@ -759,14 +755,13 @@ def place_gender_group(all_rows, header_row, end_row, cols, people, gender, targ
     while people_placed < group_size:
         slot = find_empty_room_slot(all_rows, header_row, end_row, cols, target_room, required_gender=gender)
         if not slot:
-            # Нет пустых комнат — пробуем трансформацию
+            # Нет пустых комнат — пробуем трансформацию (только trans_*, не share)
             if target_pkg_name:
                 print(f"   Нет пустых {target_room} для пола {gender}, пробуем трансформацию...")
                 fallback_slot, _, mode = find_best_slot(all_rows, target_pkg_name, gender, target_room)
-                if fallback_slot:
+                if fallback_slot and mode.startswith("trans_"):
                     slot = fallback_slot
-                    if mode.startswith("trans_"):
-                        pending_transforms.append({"start_row": slot, "mode": mode})
+                    pending_transforms.append({"start_row": slot, "mode": mode})
                     print(f"   ✅ Трансформация {mode}: строка {slot}")
                 else:
                     print(f"   ❌ Нет свободных мест для пола {gender} (включая трансформации)")
@@ -875,16 +870,15 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
     print(f"🎯 Ищем: {target_room} для пола {target_gen}\n")
 
     # 1. ПОИСК СВОБОДНОГО МЕСТА (ПОДСЕЛЕНИЕ)
-    print("🔍 ШАГ 1: Поиск свободного места в существующих комнатах...")
-    fallback_types = ROOM_FALLBACKS.get(target_room, [target_room])
-    for room_code in fallback_types:
-        require_existing = room_code != target_room
-        share_slot = find_share_slot_for_type(
-            all_rows, header_row, end_row, cols, room_code, target_gen, require_existing=require_existing
-        )
-        if share_slot:
-            print(f"✅ Найдено свободное место (подселение) в строке {share_slot}")
-            return share_slot, cols, "share"
+    # Шаг 1: подселение ТОЛЬКО в точный тип комнаты.
+    # Fallback-типы (QUAD вместо DBL и т.д.) идут в шаг 4 — ПОСЛЕ трансформации.
+    print("🔍 ШАГ 1: Поиск свободного места в существующих комнатах (точный тип)...")
+    share_slot = find_share_slot_for_type(
+        all_rows, header_row, end_row, cols, target_room, target_gen, require_existing=False
+    )
+    if share_slot:
+        print(f"✅ Найдено свободное место (подселение) в строке {share_slot}")
+        return share_slot, cols, "share"
 
     print("   ❌ Свободных мест для подселения не найдено\n")
 
@@ -984,6 +978,17 @@ def find_best_slot(all_rows, target_pkg_name, target_gender, target_room_type):
     if slot:
         print(f"✅ Найдена пустая комната в строке {slot}")
         return slot, cols, "new_room"
+
+    # 4. ПОСЛЕДНИЙ РЕЗЕРВ: подселение в комнату другого типа (fallback).
+    # Только если трансформация невозможна.
+    print("🔍 ШАГ 4: Подселение в комнату другого типа (последний резерв)...")
+    for fallback_code in ROOM_FALLBACKS.get(target_room, [])[1:]:  # пропускаем первый (это сам target_room)
+        share_slot = find_share_slot_for_type(
+            all_rows, header_row, end_row, cols, fallback_code, target_gen, require_existing=True
+        )
+        if share_slot:
+            print(f"✅ Подселение в {fallback_code} в строке {share_slot} (fallback)")
+            return share_slot, cols, "share_fallback"
 
     print("❌ Не найдено подходящих мест для размещения\n")
     return None, cols, "no_space"
