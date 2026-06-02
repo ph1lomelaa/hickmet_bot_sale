@@ -416,56 +416,56 @@ def do_transform(ws, updates, merge_tasks, all_values, start_idx, r_col, col_let
 # values_list: значение типа комнаты для каждой из rows_count строк
 # merges_list: список (offset_start, offset_end) — диапазоны для объединения ячеек
 _TRANSFORM_DESCRIPTIONS = {
-    "trans_1quad_2dbl":  "Свободных DBL не было — создано 2 DBL из 1 QUAD",
-    "trans_2trpl_3dbl":  "Свободных DBL не было — создано 3 DBL из 2 TRPL",
-    "trans_2quad_mix":   "Свободных TRPL не было — создано 2 TRPL + 1 DBL из 2 QUAD",
-    "trans_3dbl_2trpl":  "Свободных TRPL не было — создано 2 TRPL из 3 DBL",
-    "trans_2dbl_1quad":  "Свободных QUAD не было — создано 1 QUAD из 2 DBL",
-    "trans_1dbl_2sgl":   "Свободных SGL не было — создано 2 SGL из 1 DBL",
-    "trans_1trpl_mix":   "Свободных SGL не было — создано 1 DBL + 1 SGL из 1 TRPL",
+    "trans_1quad_2dbl":  "Свободных Double не было — создано 2 Double из 1 Quadro",
+    "trans_2trpl_3dbl":  "Свободных Double не было — создано 3 Double из 2 Triple",
+    "trans_2quad_mix":   "Свободных Triple не было — создано 2 Triple + 1 Double из 2 Quadro",
+    "trans_3dbl_2trpl":  "Свободных Triple не было — создано 2 Triple из 3 Double",
+    "trans_2dbl_1quad":  "Свободных Quadro не было — создано 1 Quadro из 2 Double",
+    "trans_1dbl_2sgl":   "Свободных Single не было — создано 2 Single из 1 Double",
+    "trans_1trpl_mix":   "Свободных Single не было — создано 1 Double + 1 Single из 1 Triple",
 }
 
 _TRANSFORM_PARAMS = {
-    # 1 QUAD (4 строки) → 2 DBL (2+2)
+    # 1 Quadro (4 строки) → 2 Double (2+2)
     "trans_1quad_2dbl": (
         4,
-        [["dbl"], [""], ["dbl"], [""]],
+        [["Double"], [""], ["Double"], [""]],
         [(0, 1), (2, 3)],
     ),
-    # 2 TRPL (3+3 строки) → 3 DBL (2+2+2)
+    # 2 Triple (3+3 строки) → 3 Double (2+2+2)
     "trans_2trpl_3dbl": (
         6,
-        [["dbl"], [""], ["dbl"], [""], ["dbl"], [""]],
+        [["Double"], [""], ["Double"], [""], ["Double"], [""]],
         [(0, 1), (2, 3), (4, 5)],
     ),
-    # 2 QUAD (4+4 строки) → 2 TRPL (3+3) + 1 DBL (2)
+    # 2 Quadro (4+4 строки) → 2 Triple (3+3) + 1 Double (2)
     "trans_2quad_mix": (
         8,
-        [["trpl"], [""], [""], ["trpl"], [""], [""], ["dbl"], [""]],
+        [["Triple"], [""], [""], ["Triple"], [""], [""], ["Double"], [""]],
         [(0, 2), (3, 5), (6, 7)],
     ),
-    # 3 DBL (2+2+2 строки) → 2 TRPL (3+3)
+    # 3 Double (2+2+2 строки) → 2 Triple (3+3)
     "trans_3dbl_2trpl": (
         6,
-        [["trpl"], [""], [""], ["trpl"], [""], [""]],
+        [["Triple"], [""], [""], ["Triple"], [""], [""]],
         [(0, 2), (3, 5)],
     ),
-    # 2 DBL (2+2 строки) → 1 QUAD (4)
+    # 2 Double (2+2 строки) → 1 Quadro (4)
     "trans_2dbl_1quad": (
         4,
-        [["quad"], [""], [""], [""]],
+        [["Quadro"], [""], [""], [""]],
         [(0, 3)],
     ),
-    # 1 DBL (2 строки) → 2 SGL (1+1)
+    # 1 Double (2 строки) → 2 Single (1+1)
     "trans_1dbl_2sgl": (
         2,
-        [["sgl"], ["sgl"]],
+        [["Single"], ["Single"]],
         [],
     ),
-    # 1 TRPL (3 строки) → 1 DBL (2) + 1 SGL (1)
+    # 1 Triple (3 строки) → 1 Double (2) + 1 Single (1)
     "trans_1trpl_mix": (
         3,
-        [["dbl"], [""], ["sgl"]],
+        [["Double"], [""], ["Single"]],
         [(0, 1)],
     ),
 }
