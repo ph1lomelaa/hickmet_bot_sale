@@ -254,7 +254,7 @@ async def api_bookings_submit(payload: BookingSubmitIn):
         db_records.append(db_record)
 
     # 6. Запись в Google Sheets
-    saved_rows = await save_group_booking(
+    saved_rows, room_notices = await save_group_booking(
         group_data_for_sheets,
         common,
         common["placement_type"],
@@ -346,7 +346,7 @@ async def api_bookings_submit(payload: BookingSubmitIn):
                 # Не прерываем выполнение если webhook не отправился
                 print(f"⚠️ Ошибка отправки webhook (не критично): {webhook_error}")
 
-        return {"ok": True, "db_ids": db_ids, "saved_rows": saved_rows}
+        return {"ok": True, "db_ids": db_ids, "saved_rows": saved_rows, "room_notices": room_notices}
 
     except Exception:
         await delete_bookings_by_ids(db_ids)

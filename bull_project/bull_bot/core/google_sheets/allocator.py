@@ -436,16 +436,18 @@ def find_share_slot_for_type(all_rows, header_row, end_row, cols, room_type, tar
 def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_type, placement_type="separate"):
     """
     Поиск места для группы паломников
-    
+
     Args:
         all_rows: Все строки таблицы
         target_pkg_name: Название пакета
         group_data: Список словарей с данными паломников (должны содержать 'Gender')
         target_room_type: Тип комнаты
         placement_type: "family" (вместе) или "separate" (по полу)
-    
+
     Returns:
-        list: Список строк для размещения каждого паломника
+        tuple: (rows: list[int], pending_transforms: list[dict])
+            rows — список строк для каждого паломника
+            pending_transforms — список {"start_row": int, "mode": str} для применения в writer
     """
     print(f"\n{'='*60}")
     print(f"🔍 ГРУППОВОЕ РАЗМЕЩЕНИЕ")
@@ -458,7 +460,7 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
     header_row, end_row, cols = get_package_block(all_rows, target_pkg_name)
     if header_row is None:
         print("❌ Не удалось найти блок пакета")
-        return []
+        return [], []
 
     col_room = cols.get("room")
     col_last = cols.get("last_name")
@@ -467,12 +469,12 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
 
     if col_room is None or col_last is None:
         print(f"❌ Отсутствуют необходимые колонки")
-        return []
+        return [], []
 
     target_room = normalize_room_value(target_room_type)
     group_size = len(group_data)
     fallback_types = ROOM_FALLBACKS.get(target_room, [target_room])
-    
+
     # Разделяем группу по полу
     males = [p for p in group_data if normalize(p.get('Gender', '')).upper() == 'M']
     females = [p for p in group_data if normalize(p.get('Gender', '')).upper() == 'F']
@@ -480,11 +482,12 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
     # Если есть паломники без пола — не размещаем, нужно спросить пользователя
     if len(males) + len(females) != len(group_data):
         print("❌ В группе есть паломники без указания пола. Требуется запросить пол перед размещением.")
-        return []
+        return [], []
     
     print(f"👥 Состав группы: {len(males)} мужчин, {len(females)} женщин")
 
     result_rows = []
+    pending_transforms = []  # список {"start_row": int, "mode": str}
 
     if placement_type == "family":
         # РЕЖИМ "СЕМЬЯ" - размещаем всех вместе, не смотря на пол
@@ -513,7 +516,7 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
                     if col_gender:
                         all_rows[idx][col_gender] = gender_norm
                 print(f"\n✅ Группа размещена! Строки: {result_rows}")
-                return result_rows
+                return result_rows, pending_transforms
 
             # ШАГ 2: Ищем пустую комнату точного типа
             print(f"   Шаг 2: Поиск пустой комнаты типа {target_room}")
@@ -527,7 +530,7 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
                     if col_gender:
                         all_rows[idx][col_gender] = gender_norm
                 print(f"\n✅ Группа размещена! Строки: {result_rows}")
-                return result_rows
+                return result_rows, pending_transforms
 
             # ШАГ 3: НЕТ СВОБОДНЫХ QUAD - пробуем трансформацию или fallback
             print(f"   ❌ Нет свободных мест в комнатах типа {target_room}")
@@ -540,19 +543,21 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
                     all_rows[idx][col_last] = "RESERVED"
                     if col_gender:
                         all_rows[idx][col_gender] = gender_norm
+                if mode.startswith("trans_"):
+                    pending_transforms.append({"start_row": fallback_slot, "mode": mode})
                 print(f"   ✅ Найден слот через {mode}: строка {fallback_slot}")
                 print(f"\n✅ Группа размещена! Строки: {result_rows}")
-                return result_rows
+                return result_rows, pending_transforms
 
             print("   ❌ Не удалось найти место даже через трансформацию")
-            return []
+            return [], []
 
         if group_size > room_capacity:
             print(f"⚠️ Группа ({group_size}) больше вместимости комнаты ({room_capacity})")
             # Нужно несколько комнат
             needed_rooms = (group_size + room_capacity - 1) // room_capacity
             print(f"   Требуется комнат: {needed_rooms}")
-            
+
             placed_count = 0
             for _ in range(needed_rooms):
                 # Ищем пустую комнату
@@ -563,14 +568,14 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
                     for j in range(people_in_this_room):
                         result_rows.append(slot + j)
                     placed_count += people_in_this_room
-                    
+
                     # Блокируем место в памяти
                     for j in range(people_in_this_room):
                         if (slot + j - 1) < len(all_rows):
                             all_rows[slot + j - 1][col_last] = "RESERVED"
                 else:
                     print(f"❌ Не удалось найти свободную комнату")
-                    return []
+                    return [], []
         else:
             # Группа помещается в одну комнату
             slot = find_empty_room_slot(all_rows, header_row, end_row, cols, target_room)
@@ -582,7 +587,7 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
                         all_rows[slot + j - 1][col_last] = "RESERVED"
             else:
                 print(f"❌ Не удалось найти свободную комнату")
-                return []
+                return [], []
 
     else:
         # РЕЖИМ "РАЗДЕЛЬНО" - размещаем по полу
@@ -606,7 +611,7 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
             male_rows = place_gender_group(all_rows, header_row, end_row, cols, males, 'M', target_room)
             if not male_rows or len(male_rows) != len(males):
                 print(f"❌ Не удалось разместить всех мужчин")
-                return []
+                return [], []
 
         # Размещаем женщин
         female_rows = []
@@ -615,7 +620,7 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
             female_rows = place_gender_group(all_rows, header_row, end_row, cols, females, 'F', target_room)
             if not female_rows or len(female_rows) != len(females):
                 print(f"❌ Не удалось разместить всех женщин")
-                return []
+                return [], []
 
         # 🔥 ИСПРАВЛЕНИЕ: Восстанавливаем правильный порядок строк
         # Создаем список нужного размера
@@ -635,7 +640,7 @@ def find_best_slot_for_group(all_rows, target_pkg_name, group_data, target_room_
             print(f"   {idx+1}. Пол {gender} → строка {row}")
 
     print(f"\n✅ Группа размещена! Строки: {result_rows}")
-    return result_rows
+    return result_rows, pending_transforms
 
 
 def place_gender_group(all_rows, header_row, end_row, cols, people, gender, target_room):

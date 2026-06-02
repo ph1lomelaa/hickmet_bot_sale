@@ -283,7 +283,7 @@ async def admin_request_approve(req_id: int):
                     "client_phone": nb.client_phone,
                     "passport_image_path": nb.passport_image_path,
                 })
-            saved_rows = await save_group_booking(persons, common_data, booking.placement_type or 'separate')
+            saved_rows, _ = await save_group_booking(persons, common_data, booking.placement_type or 'separate')
             if saved_rows:
                 for i, bid in enumerate(new_ids):
                     if i < len(saved_rows):

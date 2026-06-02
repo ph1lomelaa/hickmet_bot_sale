@@ -226,12 +226,18 @@ async def process_inf_passengers(ws, all_values, all_pilgrims, regular_pilgrims,
     return final_rows
 
 async def save_group_booking(group_data: list, common_data: dict, placement_mode: str, specific_row=None, is_share=False):
+    """
+    Returns:
+        tuple[list[int], list[str]]: (saved_rows, room_notices)
+            saved_rows — строки Google Sheets куда записаны паломники
+            room_notices — список уведомлений о применённых трансформациях комнат (может быть пустым)
+    """
     from bull_project.bull_bot.core.google_sheets.allocator import find_best_slot_for_group
 
     client = get_google_client()
     if not client:
         print("❌ Google client не инициализирован (get_google_client вернул None)")
-        return []
+        return [], []
 
     sheet_id = common_data.get('table_id')
     sheet_name = common_data.get('sheet_name')
@@ -244,6 +250,7 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
         all_values = ws.get_all_values()
 
         saved_rows = []
+        room_notices: list[str] = []
         updates = []
         cols = None
         merge_tasks = []
@@ -287,7 +294,7 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
         # 🔥 ИСПРАВЛЕНИЕ: Используем групповое размещение для ОБЫЧНЫХ паломников (не-INF)
         if not specific_row and len(regular_pilgrims) > 0:
             # Используем функцию группового размещения только для обычных паломников
-            saved_rows = find_best_slot_for_group(
+            saved_rows, pending_transforms = find_best_slot_for_group(
                 all_values,
                 target_pkg,
                 regular_pilgrims,  # 🔥 Передаем только не-INF паломников
@@ -298,7 +305,7 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
             if not saved_rows or len(saved_rows) != len(regular_pilgrims):
                 print(f"❌ Групповое размещение вернуло неполный список строк")
                 print(f"   Ожидалось: {len(regular_pilgrims)}, получено: {len(saved_rows)}")
-                return []
+                return [], []
 
             # Получаем колонки для записи данных
             pkg_row = find_package_row(all_values, target_pkg)
@@ -309,7 +316,16 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
 
             if not cols:
                 print(f"❌ Не найдены заголовки для пакета {target_pkg}")
-                return []
+                return [], []
+
+            # Применяем трансформации типов комнат (trans_1quad_2dbl и т.д.)
+            for transform in pending_transforms:
+                notice = apply_room_transform(
+                    ws, updates, merge_tasks, all_values,
+                    transform["start_row"], cols, transform["mode"]
+                )
+                if notice:
+                    room_notices.append(notice)
 
             # Записываем данные для каждого ОБЫЧНОГО паломника
             for i, (person_passport, row_idx) in enumerate(zip(regular_pilgrims, saved_rows)):
@@ -329,7 +345,7 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
                 for r in range(pkg_row, min(pkg_row + 15, len(all_values))):
                     cols = find_headers_extended(all_values[r])
                     if cols: break
-            if not cols: return []
+            if not cols: return [], []
 
             for i, person_passport in enumerate(regular_pilgrims):
                 row_idx = specific_row + i
@@ -344,7 +360,7 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
                             color_tasks.append(a1)
         else:
             print(f"❌ Пустой список паломников")
-            return []
+            return [], []
 
         if updates: ws.batch_update(updates)
         # Применяем окраску имен/фамилий (один цвет на группу)
@@ -372,13 +388,13 @@ async def save_group_booking(group_data: list, common_data: dict, placement_mode
             cols, common_data, group_color, parent_row_override=parent_row_override
         )
 
-        return final_rows
+        return final_rows, room_notices
 
     except Exception as e:
         print(f"❌ Save error: {e}")
         import traceback
         traceback.print_exc()
-        return []
+        return [], []
 
 def do_transform(ws, updates, merge_tasks, all_values, start_idx, r_col, col_letter, rows_count, values, merges):
     range_str = f"{col_letter}{start_idx}:{col_letter}{start_idx + rows_count - 1}"
@@ -394,6 +410,94 @@ def do_transform(ws, updates, merge_tasks, all_values, start_idx, r_col, col_let
     for k in range(rows_count):
         if start_idx - 1 + k < len(all_values):
             all_values[start_idx - 1 + k][r_col] = values[k][0]
+
+
+# Параметры трансформаций: mode -> (rows_count, values_list, merges_list)
+# values_list: значение типа комнаты для каждой из rows_count строк
+# merges_list: список (offset_start, offset_end) — диапазоны для объединения ячеек
+_TRANSFORM_DESCRIPTIONS = {
+    "trans_1quad_2dbl":  "Свободных DBL не было — создано 2 DBL из 1 QUAD",
+    "trans_2trpl_3dbl":  "Свободных DBL не было — создано 3 DBL из 2 TRPL",
+    "trans_2quad_mix":   "Свободных TRPL не было — создано 2 TRPL + 1 DBL из 2 QUAD",
+    "trans_3dbl_2trpl":  "Свободных TRPL не было — создано 2 TRPL из 3 DBL",
+    "trans_2dbl_1quad":  "Свободных QUAD не было — создано 1 QUAD из 2 DBL",
+    "trans_1dbl_2sgl":   "Свободных SGL не было — создано 2 SGL из 1 DBL",
+    "trans_1trpl_mix":   "Свободных SGL не было — создано 1 DBL + 1 SGL из 1 TRPL",
+}
+
+_TRANSFORM_PARAMS = {
+    # 1 QUAD (4 строки) → 2 DBL (2+2)
+    "trans_1quad_2dbl": (
+        4,
+        [["dbl"], [""], ["dbl"], [""]],
+        [(0, 1), (2, 3)],
+    ),
+    # 2 TRPL (3+3 строки) → 3 DBL (2+2+2)
+    "trans_2trpl_3dbl": (
+        6,
+        [["dbl"], [""], ["dbl"], [""], ["dbl"], [""]],
+        [(0, 1), (2, 3), (4, 5)],
+    ),
+    # 2 QUAD (4+4 строки) → 2 TRPL (3+3) + 1 DBL (2)
+    "trans_2quad_mix": (
+        8,
+        [["trpl"], [""], [""], ["trpl"], [""], [""], ["dbl"], [""]],
+        [(0, 2), (3, 5), (6, 7)],
+    ),
+    # 3 DBL (2+2+2 строки) → 2 TRPL (3+3)
+    "trans_3dbl_2trpl": (
+        6,
+        [["trpl"], [""], [""], ["trpl"], [""], [""]],
+        [(0, 2), (3, 5)],
+    ),
+    # 2 DBL (2+2 строки) → 1 QUAD (4)
+    "trans_2dbl_1quad": (
+        4,
+        [["quad"], [""], [""], [""]],
+        [(0, 3)],
+    ),
+    # 1 DBL (2 строки) → 2 SGL (1+1)
+    "trans_1dbl_2sgl": (
+        2,
+        [["sgl"], ["sgl"]],
+        [],
+    ),
+    # 1 TRPL (3 строки) → 1 DBL (2) + 1 SGL (1)
+    "trans_1trpl_mix": (
+        3,
+        [["dbl"], [""], ["sgl"]],
+        [(0, 1)],
+    ),
+}
+
+
+def apply_room_transform(ws, updates, merge_tasks, all_values, start_row_1based, cols, mode):
+    """
+    Применяет трансформацию типа комнаты в Google Sheets.
+
+    Returns:
+        str | None: Человекочитаемое уведомление о трансформации, или None если mode неизвестен.
+    """
+    params = _TRANSFORM_PARAMS.get(mode)
+    if not params:
+        print(f"⚠️ apply_room_transform: неизвестный режим '{mode}'")
+        return None
+
+    r_col = cols.get("room")
+    if r_col is None:
+        print("⚠️ apply_room_transform: колонка 'room' не найдена")
+        return None
+
+    col_letter = re.sub(r"\d+", "", row_col_to_a1(1, r_col + 1))
+    rows_count, values, merges = params
+    end_row_1based = start_row_1based + rows_count - 1
+
+    print(f"🔄 apply_room_transform: режим '{mode}', строки {start_row_1based}-{end_row_1based}, колонка {col_letter}")
+    do_transform(ws, updates, merge_tasks, all_values, start_row_1based, r_col, col_letter, rows_count, values, merges)
+    print(f"   ✅ Трансформация применена: {rows_count} строк, {len(merges)} объединений")
+
+    description = _TRANSFORM_DESCRIPTIONS.get(mode, f"Трансформация комнаты ({mode})")
+    return f"{description} (строки {start_row_1based}–{end_row_1based})"
 
 def _prepare_updates(updates_list, price_tasks, row_idx, cols, data):
     # Используем правильные ключи, которые приходят из паспортных данных
@@ -463,7 +567,7 @@ async def save_booking_smart(booking_data):
         'Gender': booking_data.get('gender'), 'Date of Birth': booking_data.get('dob'),
         'Document Number': booking_data.get('passport_num'), 'Document Expiration': booking_data.get('passport_exp')
     }
-    rows = await save_group_booking([passport_data], booking_data, 'separate')
+    rows, _ = await save_group_booking([passport_data], booking_data, 'separate')
     return rows[0] if rows else False
 
 async def check_train_exists(sheet_id, sheet_name, package_name):

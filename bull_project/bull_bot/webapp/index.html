@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
     <title>Hickmet Premium</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="config.js"></script>
@@ -36,7 +36,9 @@
             color: var(--text-primary);
             padding: 20px;
             padding-bottom: 60px;
+            /* 100dvh учитывает появление клавиатуры, 100vh — fallback для старых браузеров */
             min-height: 100vh;
+            min-height: 100dvh;
         }
         
         .app-header {
@@ -122,7 +124,7 @@
             border-color: var(--accent-brown);
             background-color: #FFFFFF;
             box-shadow: 0 4px 12px rgba(155, 132, 116, 0.15);
-            transform: translateY(-1px);
+            /* transform убран — вызывал layout reflow и дёргание при появлении клавиатуры */
         }
         
         .row {
@@ -266,6 +268,27 @@
             border: 1px solid #FFD18C;
             font-size: 14px;
             font-weight: 600;
+        }
+        .transform-hint {
+            display: none;
+            margin: 14px 0 4px;
+            padding: 11px 14px;
+            border-radius: 10px;
+            background: #EEF6FF;
+            color: #1A5EA8;
+            border: 1px solid #B3D4F5;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .transform-hint b {
+            display: block;
+            margin-bottom: 3px;
+            font-size: 13.5px;
+        }
+        .transform-hint .hint-action {
+            margin-top: 6px;
+            font-style: italic;
+            color: #2B7DD6;
         }
         
         /* Карточки паломников */
@@ -788,6 +811,36 @@
 		        .file-warning.danger {
 		            color: #B42318;
 		        }
+        /* ── Мобильные фиксы ──────────────────────────────────────
+           Hover-анимации с transform вызывают layout reflow на touch-устройствах
+           после тапа (hover-состояние остаётся). Разрешаем только на устройствах
+           с реальным hover (мышь / трекпад).
+        ────────────────────────────────────────────────────────── */
+        @media (hover: hover) {
+            .city-buttons label:hover,
+            .radio-group label:hover {
+                transform: translateY(-2px);
+            }
+            .passport-btn:hover  { transform: translateY(-2px); }
+            .submit-btn:hover    { transform: translateY(-3px); }
+            .sub-btn:hover       { transform: translateY(-1px); }
+        }
+
+        /* На touch-устройствах убираем hover-transform, оставляем только :active */
+        @media (hover: none) {
+            .city-buttons label:hover,
+            .radio-group label:hover,
+            .passport-btn:hover,
+            .submit-btn:hover,
+            .sub-btn:hover {
+                transform: none;
+            }
+        }
+
+        /* Убираем 300ms tap delay на iOS */
+        button, input, select, textarea, label, a {
+            touch-action: manipulation;
+        }
 	    </style>
 </head>
 <body>
@@ -1027,6 +1080,8 @@
             <label>Номер строки (напр. 145):</label>
             <input type="number" id="manual_row_input" placeholder="Введите номер строки">
         </div>
+
+        <div id="transform_hint" class="transform-hint"></div>
     </div>
 
     <button class="submit-btn" id="finish_btn" onclick="finalSubmit()">
@@ -1040,6 +1095,38 @@
 <script>
     let tg = window.Telegram.WebApp;
     tg.expand();
+
+    // ── Мобильный фикс: клавиатура ────────────────────────────────
+    // visualViewport.resize срабатывает когда появляется/скрывается
+    // клавиатура. Без этого iOS скроллит body сам и страница прыгает.
+    if (window.visualViewport) {
+        let lastViewportHeight = window.visualViewport.height;
+        window.visualViewport.addEventListener('resize', () => {
+            const currentHeight = window.visualViewport.height;
+            const diff = lastViewportHeight - currentHeight;
+            lastViewportHeight = currentHeight;
+
+            // Клавиатура появилась (viewport сжался) — скроллим к активному полю
+            if (diff > 100) {
+                const active = document.activeElement;
+                if (active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA')) {
+                    setTimeout(() => {
+                        active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    }, 100);
+                }
+            }
+        });
+    }
+
+    // Скроллим к полю при фокусе если оно за пределами видимой области
+    document.addEventListener('focusin', (e) => {
+        const el = e.target;
+        if (el.tagName !== 'INPUT' && el.tagName !== 'SELECT' && el.tagName !== 'TEXTAREA') return;
+        setTimeout(() => {
+            el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 350); // задержка: ждём пока клавиатура поднимется
+    });
+    // ─────────────────────────────────────────────────────────────
 
     const API_URL = window.BULL_API_URL;
     let pilgrimsData = [];
@@ -2147,10 +2234,38 @@
         window.scrollTo(0, 0);
     }
 
+    const TRANSFORM_HINTS = {
+        'dbl':  [
+            '1 пустой QUAD → 2 DBL',
+            '2 пустых TRPL → 3 DBL',
+        ],
+        'trpl': [
+            '2 пустых QUAD → 2 TRPL + 1 DBL',
+            '3 пустых DBL → 2 TRPL',
+        ],
+        'quad': [
+            '2 пустых DBL → 1 QUAD',
+        ],
+        'sgl':  [
+            '1 пустой DBL → 2 SGL',
+            '1 пустой TRPL → 1 DBL + 1 SGL',
+        ],
+    };
+
+    function showTransformHint(variants) {
+        const el = document.getElementById('transform_hint');
+        if (!variants || variants.length === 0) { el.style.display = 'none'; return; }
+        const lines = variants.map(v => `• ${v}`).join('<br>');
+        el.innerHTML = `<b>ℹ️ Свободных мест нет, но автоматическое размещение может создать их:</b>${lines}<span class="hint-action">→ Для этого выберите «Автоматически»</span>`;
+        el.style.display = 'block';
+    }
+
     function updateUI() {
         const m = document.querySelector('input[name="place_method"]:checked').value;
         document.getElementById('room_list_div').style.display = m === 'pick' ? 'block' : 'none';
         document.getElementById('manual_div').style.display = m === 'manual' ? 'block' : 'none';
+        // Скрываем подсказку когда выбрали авто — она уже не нужна
+        if (m === 'auto') showTransformHint(null);
     }
 
     async function fetchAvailableRooms() {
@@ -2178,8 +2293,11 @@
                     const label = rm.label || `${rm.type} · ${rm.last_guest || 'Свободно'} (Свободно: ${rm.free})`;
                     return `<option value="${rm.row}">${icon} ${label} [Строка: ${rm.row}]</option>`;
                 }).join('');
+                showTransformHint(null);
             } else {
                 sel.innerHTML = '<option value="">Нет мест для подселения</option>';
+                const roomType = (document.getElementById('room_type').value || '').toLowerCase();
+                showTransformHint(TRANSFORM_HINTS[roomType] || []);
             }
         } catch(e) { sel.innerHTML = '<option>Ошибка загрузки</option>'; }
     }
@@ -2325,6 +2443,13 @@
 	            } else {
 	                successMessage = "✅ Бронь успешно размещена!";
 	            }
+
+	            // Добавляем уведомления о трансформациях комнат
+	            const roomNotices = json.room_notices;
+	            if (roomNotices && roomNotices.length > 0) {
+	                successMessage += "\n\n⚠️ Примечание по размещению:\n" + roomNotices.join("\n");
+	            }
+
 	            alert(successMessage);
 
 	            // Если это была конвертация OPEN DATE, переносим паломника из Certificate в ИСПОЛЬЗОВАННЫЕ

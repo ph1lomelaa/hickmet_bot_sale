@@ -1181,7 +1181,7 @@ async def finalize_booking_integrated(message: Message, state: FSMContext, pilgr
 
         # --- 3. 🔥 СНАЧАЛА запись в Google Sheets ---
         print(f"\n📊 Запись в Google Sheets...")
-        saved_rows = await save_group_booking(
+        saved_rows, _ = await save_group_booking(
             sheets_pilgrims,               # group_data с паспортными данными
             common,                        # common_data
             common['placement_type'],      # placement_mode
