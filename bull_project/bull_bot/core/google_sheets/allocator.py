@@ -333,8 +333,8 @@ def get_package_block(all_rows, pkg_name):
             norm_text = normalize(row_text)
             # Новый пакет начинается если строка НАЧИНАЕТСЯ с паттерна DD.MM-DD.MM
             # (например "13.07-20.07 izi/7d"). Данные строки начинаются с цифры + буква,
-            # поэтому RANGE_RE.match ложно не срабатывает на них.
-            if RANGE_RE.match(norm_text):
+            # поэтому _PACKAGE_DATE_RANGE_RE.match ложно не срабатывает на них.
+            if _PACKAGE_DATE_RANGE_RE.match(norm_text):
                 end_row = r
                 break
 
