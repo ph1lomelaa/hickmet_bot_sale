@@ -331,8 +331,10 @@ def get_package_block(all_rows, pkg_name):
         else:
             empty_streak = 0
             norm_text = normalize(row_text)
-            # Проверка на начало нового пакета
-            if "days" in norm_text or ("-" in norm_text and "202" in norm_text and len(norm_text) < 50):
+            # Новый пакет начинается если строка НАЧИНАЕТСЯ с паттерна DD.MM-DD.MM
+            # (например "13.07-20.07 izi/7d"). Данные строки начинаются с цифры + буква,
+            # поэтому RANGE_RE.match ложно не срабатывает на них.
+            if RANGE_RE.match(norm_text):
                 end_row = r
                 break
 
