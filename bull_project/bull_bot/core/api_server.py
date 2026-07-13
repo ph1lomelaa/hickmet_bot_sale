@@ -1,8 +1,10 @@
 import os
+import time
+from collections import defaultdict, deque
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from bull_project.bull_bot.config.constants import ABS_UPLOADS_DIR
 from bull_project.bull_bot.database.setup import init_db
@@ -27,6 +29,84 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition", "Content-Type"],
 )
+
+# ──────────────────────────────────────────────────────────────────────────
+# Защита от сканеров/ботов: блокировка обхода пути + rate limiting.
+# Работает на входе для ВСЕХ эндпоинтов (до роутинга), без внешних зависимостей.
+# Параметры можно переопределить через переменные окружения.
+# ──────────────────────────────────────────────────────────────────────────
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))     # окно, сек
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "240"))          # запросов/окно с одного IP
+SCANNER_BLOCK_SECONDS = int(os.getenv("SCANNER_BLOCK_SECONDS", "900"))  # бан скана, сек
+
+# Маркеры явного сканирования (path traversal / попытки читать секреты).
+# Проверяются как подстроки в пути — легитимные запросы их не содержат.
+_SCANNER_MARKERS = (
+    "..", "\x00", "\\",
+    "/etc/", "/proc/", "/root/", "/sys/", "/var/",
+    ".ssh", "id_rsa", "id_ed25519", ".git-credentials", ".git/config",
+    ".aws", ".env", ".credentials", "auth.json", "hosts.yml",
+    "/passwd", "/shadow", ".npmrc", ".docker",
+)
+
+_rate_hits: dict[str, deque] = defaultdict(deque)  # ip -> времена запросов
+_blocked_ips: dict[str, float] = {}                # ip -> время разбана
+_last_prune = 0.0
+
+
+def _client_ip(request: Request) -> str:
+    # За реверс-прокси (Caddy) реальный IP — в X-Forwarded-For
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _prune(now: float) -> None:
+    for ip in list(_rate_hits.keys()):
+        dq = _rate_hits[ip]
+        while dq and now - dq[0] > RATE_LIMIT_WINDOW:
+            dq.popleft()
+        if not dq:
+            del _rate_hits[ip]
+    for ip in list(_blocked_ips.keys()):
+        if now >= _blocked_ips[ip]:
+            del _blocked_ips[ip]
+
+
+@app.middleware("http")
+async def security_guard(request: Request, call_next):
+    global _last_prune
+    now = time.time()
+    ip = _client_ip(request)
+
+    # периодическая чистка словарей, чтобы память не росла
+    if now - _last_prune > RATE_LIMIT_WINDOW:
+        _prune(now)
+        _last_prune = now
+
+    # 1) IP уже забанен за скан
+    unblock = _blocked_ips.get(ip)
+    if unblock is not None:
+        if now < unblock:
+            return PlainTextResponse("Forbidden", status_code=403)
+        del _blocked_ips[ip]
+
+    # 2) явная попытка обхода пути / чтения секретов → мгновенный бан
+    path = request.url.path.lower()
+    if any(marker in path for marker in _SCANNER_MARKERS):
+        _blocked_ips[ip] = now + SCANNER_BLOCK_SECONDS
+        return PlainTextResponse("Forbidden", status_code=403)
+
+    # 3) rate limiting по IP (скользящее окно)
+    dq = _rate_hits[ip]
+    while dq and now - dq[0] > RATE_LIMIT_WINDOW:
+        dq.popleft()
+    if len(dq) >= RATE_LIMIT_MAX:
+        return PlainTextResponse("Too Many Requests", status_code=429)
+    dq.append(now)
+
+    return await call_next(request)
 
 app.include_router(rooms_router)
 app.include_router(admin_requests_router)
@@ -73,21 +153,35 @@ async def root():
     return {"message": "Bull API", "status": "running"}
 
 
+def _safe_static_path(base_dir: str, rel_path: str):
+    """Безопасно соединяет base_dir и относительный путь из URL.
+    Возвращает абсолютный путь ТОЛЬКО если он реально лежит внутри base_dir,
+    иначе None. Блокирует обход каталога (../../etc/passwd и т.п.)."""
+    base = os.path.realpath(base_dir)
+    # Абсолютные пути и обратные слэши недопустимы
+    if not rel_path or rel_path.startswith(("/", "\\")) or "\x00" in rel_path:
+        return None
+    target = os.path.realpath(os.path.join(base, rel_path))
+    if target == base or target.startswith(base + os.sep):
+        return target
+    return None
+
+
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
 
     if full_path.startswith("api/"):
         return {"error": "API endpoint not found"}
 
-    file_path = os.path.join(CARE_WEBAPP_DIR, full_path)
-    if os.path.exists(file_path) and os.path.isfile(file_path):
+    file_path = _safe_static_path(CARE_WEBAPP_DIR, full_path)
+    if file_path and os.path.isfile(file_path):
         return FileResponse(file_path)
 
-    asset_path = os.path.join(ASSETS_DIR, full_path)
-    if os.path.exists(asset_path) and os.path.isfile(asset_path):
+    asset_path = _safe_static_path(ASSETS_DIR, full_path)
+    if asset_path and os.path.isfile(asset_path):
         return FileResponse(asset_path)
 
-    
+    # SPA-фолбэк: любой неизвестный путь отдаёт index.html (а не файлы ФС)
     index_path = os.path.join(CARE_WEBAPP_DIR, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
