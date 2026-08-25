@@ -63,6 +63,81 @@ async def _get_sheet_names_cached(table_id: str, force: bool = False) -> List[st
     await asyncio.sleep(0.3)
     return names or []
 
+def _date_variants(date_part: str) -> List[str]:
+    """Варианты написания даты: 07.03, 7.03, 07.3, 7.3 (без дублей)."""
+    parts = date_part.split(".")
+    if len(parts) != 2:
+        return [date_part]
+
+    dd, mm = parts
+    try:
+        variants = [
+            f"{dd}.{mm}",
+            f"{int(dd)}.{mm}",
+            f"{dd}.{int(mm)}",
+            f"{int(dd)}.{int(mm)}",
+        ]
+    except ValueError:
+        return [date_part]
+
+    seen = set()
+    return [v for v in variants if not (v in seen or seen.add(v))]
+
+
+async def _collect_raw_packages(
+    target_tables: Dict[str, str],
+    date_part: str,
+    force_sheets: bool,
+) -> List[dict]:
+    """Собирает пакеты со всех листов, начинающихся с нужной даты."""
+    temp_collected: List[dict] = []
+    date_variants = _date_variants(date_part)
+    print(f"🔎 [DEBUG] Варианты даты для поиска: {date_variants} (force_sheets={force_sheets})")
+
+    for t_name, t_id in target_tables.items():
+        try:
+            sheet_names = await _get_sheet_names_cached(t_id, force=force_sheets)
+            print(f"📋 [DEBUG] Таблица '{t_name}': {len(sheet_names)} листов")
+            print(f"   Первые 10 листов: {sheet_names[:10]}")
+
+            matched = []
+            for sheet_name in sheet_names:
+                clean = (sheet_name or "").strip()
+                for variant in date_variants:
+                    if clean.startswith(variant):
+                        matched.append(sheet_name)
+                        print(f"✅ [DEBUG] Найден лист: '{sheet_name}' (совпадает с '{variant}')")
+                        break
+
+            if not matched:
+                print(f"⚠️ [DEBUG] Нет совпадений в таблице '{t_name}'")
+                continue
+
+            for sheet_name in matched:
+                await asyncio.sleep(0.1)  # микро-пауза
+                packages_map = get_packages_from_sheet(t_id, sheet_name)
+
+                if not packages_map:
+                    continue
+
+                for _, pkg_name in packages_map.items():
+                    # Пока собираем без суффиксов - добавим их позже только если нужно
+                    temp_collected.append({
+                        "d": date_part,
+                        "n": pkg_name,  # Оригинальное название без суффикса
+                        "s": sheet_name,
+                        "t": t_id,
+                        "table_name": t_name  # Сохраняем название ТАБЛИЦЫ для суффикса
+                    })
+
+        except Exception as e:
+            # не валим весь поиск из-за одной таблицы
+            print(f"Ошибка чтения таблицы {t_name}: {e}")
+            continue
+
+    return temp_collected
+
+
 async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
     date_part = _norm_ddmm(date_part)
     ts, cached = DATE_CACHE.get(date_part, (0, []))
@@ -78,70 +153,13 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
         print(f"📚 [DEBUG] Найдено таблиц: {len(target_tables)} - {list(target_tables.keys())}")
 
         # Сначала собираем все пакеты БЕЗ суффиксов
-        temp_collected: List[dict] = []
+        temp_collected = await _collect_raw_packages(target_tables, date_part, force_sheets=force)
 
-        for t_name, t_id in target_tables.items():
-            try:
-                sheet_names = await _get_sheet_names_cached(t_id, force=False)
-                print(f"📋 [DEBUG] Таблица '{t_name}': {len(sheet_names)} листов")
-                print(f"   Первые 10 листов: {sheet_names[:10]}")
-
-                # выбираем только листы нужной даты
-                # Поддерживаем варианты: "07.03", "7.03", "07.3"
-                matched = []
-
-                # Создаем варианты даты для поиска
-                parts = date_part.split(".")
-                if len(parts) == 2:
-                    dd, mm = parts
-                    # Варианты: "07.03", "7.03", "07.3", "7.3"
-                    date_variants = [
-                        f"{dd}.{mm}",           # 07.03
-                        f"{int(dd)}.{mm}",      # 7.03
-                        f"{dd}.{int(mm)}",      # 07.3
-                        f"{int(dd)}.{int(mm)}"  # 7.3
-                    ]
-                else:
-                    date_variants = [date_part]
-
-                print(f"🔎 [DEBUG] Варианты даты для поиска: {date_variants}")
-
-                for sheet_name in sheet_names:
-                    clean = (sheet_name or "").strip()
-                    # Проверяем все варианты даты
-                    for variant in date_variants:
-                        if clean.startswith(variant):
-                            matched.append(sheet_name)
-                            print(f"✅ [DEBUG] Найден лист: '{sheet_name}' (совпадает с '{variant}')")
-                            break  # Нашли совпадение, переходим к следующему листу
-
-                # если в этой таблице на дату нет листов — идём дальше
-                if not matched:
-                    print(f"⚠️ [DEBUG] Нет совпадений в таблице '{t_name}'")
-                    continue
-
-                # читаем пакеты только из совпавших листов
-                for sheet_name in matched:
-                    await asyncio.sleep(0.1)  # микро-пауза
-                    packages_map = get_packages_from_sheet(t_id, sheet_name)
-
-                    if not packages_map:
-                        continue
-
-                    for _, pkg_name in packages_map.items():
-                        # Пока собираем без суффиксов - добавим их позже только если нужно
-                        temp_collected.append({
-                            "d": date_part,
-                            "n": pkg_name,  # Оригинальное название без суффикса
-                            "s": sheet_name,
-                            "t": t_id,
-                            "table_name": t_name  # Сохраняем название ТАБЛИЦЫ для суффикса
-                        })
-
-            except Exception as e:
-                # не валим весь поиск из-за одной таблицы
-                print(f"Ошибка чтения таблицы {t_name}: {e}")
-                continue
+        # Ничего не нашли — возможно, лист создали только что, а имена листов
+        # лежат в кэше (SHEETS_TTL). Повторяем поиск со свежим списком листов.
+        if not temp_collected and not force:
+            print("🔄 [DEBUG] Совпадений нет — обновляю список листов и повторяю поиск")
+            temp_collected = await _collect_raw_packages(target_tables, date_part, force_sheets=True)
 
         if not temp_collected:
             return {"found": False, "error": "Рейсы не найдены."}
