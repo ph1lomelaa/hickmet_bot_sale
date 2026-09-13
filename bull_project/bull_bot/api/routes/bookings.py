@@ -19,7 +19,7 @@ from bull_project.bull_bot.database.requests import (
     get_last_n_bookings_by_manager,
     get_booking_by_id,
     update_booking_fields,
-    booking_exists,
+    find_active_bookings_for_person,
     delete_bookings_by_ids,
     create_approval_request,
 )
@@ -145,14 +145,37 @@ async def api_bookings_submit(payload: BookingSubmitIn):
             )
     print(f"✅ Все паломники имеют корректный пол")
 
-    # 4.1 Проверка на дубликаты по ФИО в этом листе (активные брони)
-    for pilgrim in payload.pilgrims:
-        ln = (pilgrim.last_name or "").strip()
-        fn = (pilgrim.first_name or "").strip()
-        if await booking_exists(payload.table_id, sheet_name, ln, fn):
+    # 4.1 Проверка на дубликаты (активные брони по ФИО или паспорту).
+    # Не запрещаем, а предупреждаем: менеджер может подтвердить (confirm_duplicates).
+    if not payload.confirm_duplicates:
+        duplicates = []
+        for pilgrim in payload.pilgrims:
+            ln = (pilgrim.last_name or "").strip()
+            fn = (pilgrim.first_name or "").strip()
+            existing = await find_active_bookings_for_person(ln, fn, pilgrim.passport_num)
+            for b in existing:
+                duplicates.append({
+                    "name": f"{ln} {fn}".strip(),
+                    "booking_id": b.id,
+                    "package_name": b.package_name or "-",
+                    "sheet_name": b.sheet_name or "-",
+                    "manager_name_text": b.manager_name_text or "-",
+                    "created_at": b.created_at.strftime("%d.%m.%Y") if b.created_at else "-",
+                    "same_tour": (
+                        b.table_id == payload.table_id
+                        and (b.sheet_name or "").strip() == sheet_name
+                        and (b.package_name or "").strip() == package_name
+                    ),
+                })
+        if duplicates:
             return JSONResponse(
                 status_code=409,
-                content={"ok": False, "error": f"Бронь для {ln} {fn} уже существует"}
+                content={
+                    "ok": False,
+                    "code": "duplicate_warning",
+                    "error": "Найдены существующие брони для паломников",
+                    "duplicates": duplicates,
+                }
             )
 
     # 5. Формирование данных для Google Sheets

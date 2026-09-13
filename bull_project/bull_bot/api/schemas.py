@@ -44,6 +44,7 @@ class BookingSubmitIn(BaseModel):
     placement_type: str = "separate"
     specific_row: Optional[int] = None
     manager_id: Optional[int] = None
+    confirm_duplicates: bool = False
 
 
 class RescheduleRequestIn(BookingSubmitIn):

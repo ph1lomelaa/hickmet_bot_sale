@@ -9,7 +9,7 @@ from bull_project.bull_bot.core.google_sheets.client import (
 )
 
 SHEETS_CACHE: Dict[str, Tuple[float, List[str]]] = {}
-SHEETS_TTL = 60 * 30  
+SHEETS_TTL = 60  # короткий TTL: новые листы подхватываются без перезапуска
 DATE_CACHE: Dict[str, Tuple[float, List[dict]]] = {}
 DATE_TTL = 60  
 
@@ -40,10 +40,10 @@ def _norm_ddmm(s: str) -> str:
     mm = parts[1].zfill(2)[:2]
     return f"{dd}.{mm}"
 
-async def _get_target_tables_current_next_year() -> Dict[str, str]:
+async def _get_target_tables_current_next_year(force: bool = False) -> Dict[str, str]:
     now = datetime.now()
     years = [str(now.year), str(now.year + 1)]
-    all_tables = get_accessible_tables()
+    all_tables = get_accessible_tables(use_cache=not force)
 
     target = {}
     for t_name, t_id in all_tables.items():
@@ -158,7 +158,8 @@ async def get_packages_by_date(date_part: str, force: bool = False) -> dict:
         # Ничего не нашли — возможно, лист создали только что, а имена листов
         # лежат в кэше (SHEETS_TTL). Повторяем поиск со свежим списком листов.
         if not temp_collected and not force:
-            print("🔄 [DEBUG] Совпадений нет — обновляю список листов и повторяю поиск")
+            print("🔄 [DEBUG] Совпадений нет — обновляю список таблиц и листов и повторяю поиск")
+            target_tables = await _get_target_tables_current_next_year(force=True) or target_tables
             temp_collected = await _collect_raw_packages(target_tables, date_part, force_sheets=True)
 
         if not temp_collected:

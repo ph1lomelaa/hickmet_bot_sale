@@ -2393,7 +2393,7 @@
 	            }
 	        }
 
-	            const res = await fetch(endpoint, {
+	            const send = () => fetch(endpoint, {
 	                method,
 	                headers: {
 	                    "Content-Type": "application/json",
@@ -2402,7 +2402,31 @@
                 body: JSON.stringify(data)
             });
 
-            const json = await res.json().catch(() => ({}));
+            let res = await send();
+            let json = await res.json().catch(() => ({}));
+
+            // Человек уже записан — спрашиваем подтверждение, а не запрещаем
+            if (json.code === 'duplicate_warning' && Array.isArray(json.duplicates)) {
+                const hasSameTour = json.duplicates.some(d => d.same_tour);
+                const lines = json.duplicates.map(d =>
+                    `• ${d.name} — ${d.package_name} (${d.sheet_name}), менеджер: ${d.manager_name_text}, от ${d.created_at}` +
+                    (d.same_tour ? ' ‼️ НА ЭТОТ ЖЕ ТУР И ДАТУ' : '')
+                );
+                const text =
+                    (hasSameTour ? '‼️ Уже есть бронь на этот же тур и дату!\n\n' : '') +
+                    '⚠️ Этот человек уже записан:\n' + lines.join('\n') +
+                    '\n\nВы точно хотите создать бронь?';
+
+                if (!confirm(text)) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="icon">✅</span> ЗАВЕРШИТЬ И ЗАПИСАТЬ';
+                    return;
+                }
+
+                data.confirm_duplicates = true;
+                res = await send();
+                json = await res.json().catch(() => ({}));
+            }
 
             if (!res.ok || !json.ok) {
                 const msg = json.error || `Ошибка сервера: ${res.status}`;

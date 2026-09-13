@@ -218,18 +218,30 @@ async def get_pending_requests_for_admin(admin_id: int, request_type: str):
         result = await session.scalars(query)
         return result.all()
 
-async def booking_exists(table_id: str, sheet_name: str, last_name: str, first_name: str):
-    """Проверяем, есть ли уже активная бронь с тем же ФИО на этом листе"""
-    async with async_session() as session:
-        stmt = select(func.count(Booking.id)).where(
-            Booking.table_id == table_id,
-            Booking.sheet_name == sheet_name,
-            func.lower(Booking.guest_last_name) == func.lower(last_name),
-            func.lower(Booking.guest_first_name) == func.lower(first_name),
-            Booking.status.notin_(('cancelled', 'rescheduled'))
+async def find_active_bookings_for_person(last_name: str, first_name: str, passport_num: str = None):
+    """Активные брони человека во всех турах: совпадение по ФИО или по номеру паспорта"""
+    last_name = (last_name or "").strip()
+    first_name = (first_name or "").strip()
+    passport = (passport_num or "").strip().upper()
+
+    conditions = []
+    if last_name and first_name:
+        conditions.append(
+            (func.lower(Booking.guest_last_name) == func.lower(last_name))
+            & (func.lower(Booking.guest_first_name) == func.lower(first_name))
         )
-        cnt = await session.scalar(stmt)
-        return (cnt or 0) > 0
+    if passport and passport != "-":
+        conditions.append(func.upper(Booking.passport_num) == passport)
+    if not conditions:
+        return []
+
+    async with async_session() as session:
+        stmt = select(Booking).where(
+            or_(*conditions),
+            Booking.status.notin_(('cancelled', 'rescheduled'))
+        ).order_by(desc(Booking.created_at))
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
 async def get_approval_request(req_id: int):
     async with async_session() as session:

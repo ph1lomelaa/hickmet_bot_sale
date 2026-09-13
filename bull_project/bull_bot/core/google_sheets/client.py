@@ -1,16 +1,19 @@
 import logging
+import time
 from gspread.exceptions import WorksheetNotFound
 from bull_project.bull_bot.config.settings import get_google_client
 
 logger = logging.getLogger(__name__)
 
-# Простой кэш для списка таблиц, чтобы не ждать 3 секунды при каждом клике
-# Он сбросится при перезапуске бота
+# Кэш списка таблиц, чтобы не ждать 3 секунды при каждом клике.
+# Живёт TABLES_TTL секунд — новые таблицы подхватываются без перезапуска.
 _tables_cache = None
+_tables_cache_ts = 0.0
+TABLES_TTL = 60 * 5
 
 def get_accessible_tables(use_cache=True) -> dict:
 
-    global _tables_cache
+    global _tables_cache, _tables_cache_ts
 
     # Импортируем константы
     from bull_project.bull_bot.config.constants import (
@@ -33,12 +36,12 @@ def get_accessible_tables(use_cache=True) -> dict:
         return result
 
     # 📊 PRODUCTION РЕЖИМ: возвращаем все таблицы
-    if use_cache and _tables_cache:
+    if use_cache and _tables_cache and (time.time() - _tables_cache_ts < TABLES_TTL):
         return _tables_cache
 
     client = get_google_client()
     if not client:
-        return {}
+        return _tables_cache or {}
 
     try:
         # Это тяжелый запрос, он занимает 1-3 секунды
@@ -52,11 +55,13 @@ def get_accessible_tables(use_cache=True) -> dict:
 
         # Сохраняем в память
         _tables_cache = result
+        _tables_cache_ts = time.time()
         logger.info(f"📊 Загружено {len(result)} production таблиц")
         return result
     except Exception as e:
         logger.error(f"❌ Ошибка получения списка таблиц: {e}")
-        return {}
+        # Не теряем старый список из-за временной ошибки Google API
+        return _tables_cache or {}
 
 def get_sheet_names(spreadsheet_id: str) -> list:
     """
