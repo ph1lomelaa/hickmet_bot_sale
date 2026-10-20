@@ -2,7 +2,7 @@
 API endpoints для работы с OPEN DATE бронированиями
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
@@ -55,12 +55,12 @@ class ConvertToBookingRequest(BaseModel):
 # === ENDPOINTS ===
 
 @router.post("/submit")
-async def submit_open_date(data: OpenDateSubmitRequest):
+async def submit_open_date(data: OpenDateSubmitRequest, request: Request):
     """Создает OPEN DATE бронирование"""
     try:
         logger.info(f"📝 Создание OPEN DATE брони для {len(data.pilgrims)} паломников")
 
-        manager_id = int(data.manager_id or 0)
+        manager_id = request.state.user.telegram_id
         manager_name = (data.manager_name_text or "").strip() or "Manager"
 
         # Подготавливаем данные паломников

@@ -36,7 +36,11 @@ from bull_project.bull_bot.database.requests import (
 )
 from bull_project.bull_bot.core.google_sheets.writer import save_group_booking, clear_booking_in_sheets
 
+from bull_project.bull_bot.core.access import has_access, manager_access_version, ACCESS_MESSAGE, issue_upload_token, REAUTH_MESSAGE, reauth_keyboard
+import hmac
+
 router = Router()
+_login_attempts = {}
 
 # Ссылка на твой фронтенд
 WEB_APP_URL = "https://ph1lomelaa.github.io/book/index.html"
@@ -102,7 +106,7 @@ async def cmd_start(message: Message, state: FSMContext):
             ]
         )
     user = await get_user_by_id(message.from_user.id)
-    if user and user.role != "guest":
+    if has_access(user):
         if user.role == "admin":
             # Команды в "гамбургер" (меню команд слева от поля ввода) для админов.
             # Делается per-chat, чтобы другие роли их не видели.
@@ -116,32 +120,86 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer(f"🕋 <b>Ассаламу алейкум, {user.full_name}!</b>",
                              reply_markup=get_menu_by_role(user.role), parse_mode="HTML")
     else:
-        await message.answer("🕋 <b>Ассаламу алейкум!</b>\nВведите Код Доступа для регистрации:", parse_mode="HTML")
+        if user:
+            await message.answer(REAUTH_MESSAGE, reply_markup=reauth_keyboard())
+        else:
+            await message.answer("🕋 Ассалям алейкум!\nВведите пароль доступа для входа:")
         await state.set_state(BookingFlow.waiting_access_code)
+
+
+@router.callback_query(F.data == "access:enter_password")
+async def enter_access_password(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    user = await get_user_by_id(call.from_user.id)
+    if has_access(user):
+        await call.bot.send_message(call.from_user.id, "✅ Вы уже вошли. Выберите действие:",
+                                    reply_markup=get_menu_by_role(user.role))
+        return
+    await state.clear()
+    await state.set_state(BookingFlow.waiting_access_code)
+    await call.bot.send_message(call.from_user.id,
+        "🔑 Отправьте новый пароль следующим сообщением.\nЕсли вы его не знаете, уточните у руководителя.")
 
 @router.message(Command("logout"))
 async def cmd_logout(message: Message, state: FSMContext):
     await delete_user(message.from_user.id)
     await state.clear()
-    print(f"👤 [LOGOUT] Пользователь {message.from_user.id} удален.")
-    await message.answer("👋 Вы вышли из системы. Введите код для регистрации:")
+    print(f"👤 [LOGOUT] Пользователь {message.from_user.id} вышел из системы.")
+    await message.answer("👋 Вы вышли из системы. Введите пароль для входа:")
     await state.set_state(BookingFlow.waiting_access_code)
 
 @router.message(BookingFlow.waiting_access_code)
 async def check_code(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Введите пароль текстом.")
+        return
+    now = time.monotonic()
+    attempts = _login_attempts.get(message.from_user.id, [])
+    attempts = [t for t in attempts if now - t < 300]
+    if len(attempts) >= 5:
+        await message.answer("Слишком много попыток. Повторите через 5 минут.")
+        return
+    attempts.append(now)
+    _login_attempts[message.from_user.id] = attempts
     code = message.text.strip()
-    role = "admin" if code == ADMIN_PASSWORD else "care" if code == CARE_PASSWORD else "manager" if code == MANAGER_PASSWORD else None
+    role = next((r for r, password in (("admin", ADMIN_PASSWORD), ("care", CARE_PASSWORD),
+                 ("manager", MANAGER_PASSWORD)) if password and hmac.compare_digest(code.encode(), password.encode())), None)
+    with suppress(Exception):
+        await message.delete()
     if role:
-        await state.update_data(reg_role=role)
+        _login_attempts.pop(message.from_user.id, None)
+        version = manager_access_version() if role == "manager" else None
+        user = await get_user_by_id(message.from_user.id)
+        if user:
+            await add_user(user.telegram_id, user.full_name, message.from_user.username,
+                           role=role, manager_access_version=version)
+            await state.clear()
+            await message.answer("✅ Вы снова в системе! Все ваши брони и история на месте.\nВыберите действие:",
+                                 reply_markup=get_menu_by_role(role))
+            return
+        await state.update_data(reg_role=role, reg_access_version=version)
         await message.answer("✅ Код принят! <b>Как вас зовут?</b>", parse_mode="HTML")
         await state.set_state(BookingFlow.waiting_registration_name)
-    else: await message.answer("❌ Неверный код.")
+    else: await message.answer("❌ Пароль не подошёл. Попробуйте ещё раз или уточните новый пароль у руководителя.")
 
 @router.message(BookingFlow.waiting_registration_name)
 async def register_name(message: Message, state: FSMContext):
+    if not message.text or not message.text.strip():
+        await message.answer("Введите имя текстом.")
+        return
     name = message.text.strip()
-    role = (await state.get_data()).get("reg_role", "manager")
-    await add_user(message.from_user.id, name, message.from_user.username, role=role)
+    data = await state.get_data()
+    role = data.get("reg_role")
+    version = data.get("reg_access_version")
+    if role not in ("admin", "care", "manager") or (
+        role == "manager" and (not version or version != manager_access_version())
+    ):
+        await state.clear()
+        await state.set_state(BookingFlow.waiting_access_code)
+        await message.answer(REAUTH_MESSAGE, reply_markup=reauth_keyboard())
+        return
+    await add_user(message.from_user.id, name, message.from_user.username,
+                   role=role, manager_access_version=version)
     await message.answer(f"🕋 Ассаламу алейкум, {name}!", reply_markup=get_menu_by_role(role))
     await state.clear()
 
@@ -304,7 +362,7 @@ async def process_passport(message: Message, state: FSMContext):
                         with open(original_path, "rb") as f:
                             form = aiohttp.FormData()
                             form.add_field("file", f, filename=os.path.basename(original_path))
-                            resp = await session.post(upload_url, data=form)
+                            resp = await session.post(upload_url, data=form, headers={"X-Bot-Upload-Token": issue_upload_token(message.from_user.id)})
                             res_json = await resp.json()
 
                     if resp.status == 200 and res_json.get("ok"):
@@ -393,7 +451,7 @@ async def process_passport(message: Message, state: FSMContext):
                         with open(original_path, "rb") as f:
                             form = aiohttp.FormData()
                             form.add_field("file", f, filename=os.path.basename(original_path))
-                            resp = await session.post(upload_url, data=form)
+                            resp = await session.post(upload_url, data=form, headers={"X-Bot-Upload-Token": issue_upload_token(message.from_user.id)})
                             res_json = await resp.json()
                             if resp.status == 200 and res_json.get("ok") and res_json.get("path"):
                                 p_data['passport_image_path'] = res_json["path"]

@@ -166,7 +166,7 @@ else:
 # ==================== ПРОЧИЕ ПУТИ / НАСТРОЙКИ ====================
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "HickmetTravel")
-MANAGER_PASSWORD = os.getenv("MANAGER_PASSWORD", "SALE")
+MANAGER_PASSWORD = os.getenv("MANAGER_PASSWORD", "")
 CARE_PASSWORD = os.getenv("CARE_PASSWORD", "CARE")
 
 FONTS_DIR = os.path.join(PROJECT_ROOT, "assets", "fonts", "Montserrat", "static")

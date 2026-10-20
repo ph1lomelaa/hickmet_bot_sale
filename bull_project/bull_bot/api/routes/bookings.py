@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from bull_project.bull_bot.api.schemas import (
@@ -15,7 +15,6 @@ from bull_project.bull_bot.api.utils import normalize_sheet_and_package, check_p
 from bull_project.bull_bot.database.requests import (
     add_booking_to_db,
     update_booking_row,
-    add_user,
     get_last_n_bookings_by_manager,
     get_booking_by_id,
     update_booking_fields,
@@ -43,7 +42,7 @@ router = APIRouter()
 
 
 @router.post("/api/bookings/submit")
-async def api_bookings_submit(payload: BookingSubmitIn):
+async def api_bookings_submit(payload: BookingSubmitIn, request: Request):
     print("\n" + "="*60)
     print("📥 ПОЛУЧЕН ЗАПРОС /api/bookings/submit")
     print("="*60)
@@ -75,17 +74,8 @@ async def api_bookings_submit(payload: BookingSubmitIn):
             content={"ok": False, "error": "Список паломников пуст"}
         )
 
-    # 1. Проверяем/создаем менеджера в БД
-    manager_id = payload.manager_id or 0
-    try:
-        await add_user(
-            manager_id,
-            payload.manager_name_text or "Manager",
-            username="-",
-            role="manager",
-        )
-    except Exception:
-        pass  # если уже есть — игнорируем
+    # Identity comes from verified Telegram data; never assign a role here.
+    manager_id = request.state.user.telegram_id
 
     # 2. Нормализация имен
     sheet_name, package_name = normalize_sheet_and_package(
@@ -455,7 +445,7 @@ async def get_manager_history(manager_id: int):
 
 
 @router.post("/api/bookings/reschedule/request")
-async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
+async def api_bookings_reschedule_request(payload: RescheduleRequestIn, request: Request):
     """
     Создание заявки на перенос (без записи в Google Sheets).
     Создаёт новую бронь в БД со статусом pending_reschedule + ApprovalRequest(old:<id>).
@@ -484,16 +474,7 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
             if not b:
                 return JSONResponse(status_code=404, content={"ok": False, "error": f"Старая бронь не найдена: #{oid}"})
 
-        manager_id = payload.manager_id or 0
-        try:
-            await add_user(
-                manager_id,
-                payload.manager_name_text or "Manager",
-                username="-",
-                role="manager",
-            )
-        except Exception:
-            pass
+        manager_id = request.state.user.telegram_id
 
         sheet_name, package_name = normalize_sheet_and_package(payload.sheet_name, payload.package_name)
 
@@ -617,14 +598,14 @@ async def api_bookings_reschedule_request(payload: RescheduleRequestIn):
 
 
 @router.post("/api/bookings/cancel/request")
-async def api_bookings_cancel_request(payload: CancelRequestIn):
+async def api_bookings_cancel_request(payload: CancelRequestIn, request: Request):
     """
     Создание заявки на отмену (без прямой отмены).
     """
     try:
         booking_id = int(payload.booking_id or 0)
         comment = (payload.comment or "").strip()
-        initiator_id = int(payload.initiator_id or 0)
+        initiator_id = request.state.user.telegram_id
 
         if booking_id <= 0:
             return JSONResponse(status_code=400, content={"ok": False, "error": "booking_id is required"})

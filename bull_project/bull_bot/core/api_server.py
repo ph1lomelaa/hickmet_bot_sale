@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from bull_project.bull_bot.config.constants import ABS_UPLOADS_DIR
 from bull_project.bull_bot.database.setup import init_db
+from bull_project.bull_bot.api.access import api_access_guard, router as access_router
 from bull_project.bull_bot.api.routes.rooms import router as rooms_router
 from bull_project.bull_bot.api.routes.admin_requests import router as admin_requests_router
 from bull_project.bull_bot.api.routes.open_date import router as open_date_router
@@ -20,15 +21,8 @@ from bull_project.bull_bot.api.routes.admin import router as admin_router
 
 os.makedirs(ABS_UPLOADS_DIR, exist_ok=True)
 app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["Content-Disposition", "Content-Type"],
-)
+app.middleware("http")(api_access_guard)
+app.include_router(access_router)
 
 # ──────────────────────────────────────────────────────────────────────────
 # Защита от сканеров/ботов: блокировка обхода пути + rate limiting.
@@ -74,7 +68,6 @@ def _prune(now: float) -> None:
             del _blocked_ips[ip]
 
 
-@app.middleware("http")
 async def security_guard(request: Request, call_next):
     global _last_prune
     now = time.time()
@@ -108,6 +101,17 @@ async def security_guard(request: Request, call_next):
 
     return await call_next(request)
 
+app.middleware("http")(security_guard)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition", "Content-Type"],
+)
+
 app.include_router(rooms_router)
 app.include_router(admin_requests_router)
 app.include_router(open_date_router)
@@ -124,6 +128,8 @@ ASSETS_DIR = os.path.join(PROJECT_ROOT, "assets")
 
 @app.on_event("startup")
 async def startup_event():
+    from bull_project.bull_bot.core.access import validate_access_config
+    validate_access_config()
     await init_db()
 
 if os.path.isdir(CARE_WEBAPP_DIR):

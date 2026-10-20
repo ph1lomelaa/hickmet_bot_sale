@@ -11,6 +11,8 @@ class User(Base):
     full_name = Column(String)
     username = Column(String, nullable=True)
     role = Column(String, default="manager")
+    manager_access_version = Column(String(64), nullable=True)
+    manager_access_notice_version = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
 
 class Request4U(Base):

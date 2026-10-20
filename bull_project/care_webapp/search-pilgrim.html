@@ -6,6 +6,7 @@
     <title>🔍 Поиск паломника - Hickmet Premium</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="config.js"></script>
+    <script src="access.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -596,7 +597,7 @@
                     html += `
                         <div class="passport-container">
                             <img
-                                src="${photoUrl}"
+                                data-access-src="${photoUrl}"
                                 alt="Паспорт"
                                 class="passport-image"
                                 onerror="console.error('❌ Ошибка загрузки паспорта для booking ${booking.id}'); this.style.display='none';"
@@ -786,7 +787,7 @@
             evt?.stopPropagation();
 
             try {
-                const directUrl = `${API_URL}/api/care/passport-pdf/${bookingId}?mode=compact&limit_mb=1&ngrok-skip-browser-warning=1`;
+                const directUrl = await window.BullAccess.mediaUrl(`${API_URL}/api/care/passport-pdf/${bookingId}?mode=compact&limit_mb=1&ngrok-skip-browser-warning=1`);
 
                 // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую
                 if (window.Telegram?.WebApp) {
@@ -807,7 +808,7 @@
             evt?.stopPropagation();
 
             try {
-                const directUrl = `${API_URL}/api/care/passport-original/${bookingId}?ngrok-skip-browser-warning=1`;
+                const directUrl = await window.BullAccess.mediaUrl(`${API_URL}/api/care/passport-original/${bookingId}?ngrok-skip-browser-warning=1`);
 
                 // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую
                 if (window.Telegram?.WebApp) {
@@ -912,7 +913,7 @@
                 const card = btn.closest('.booking-card');
                 const passportImg = card.querySelector('.passport-image');
                 if (passportImg) {
-                    passportImg.src = `${API_URL}/api/care/passport-photo/${bookingId}?t=${new Date().getTime()}`;
+                    passportImg.dataset.accessSrc = `${API_URL}/api/care/passport-photo/${bookingId}?t=${new Date().getTime()}`;
                 } else {
                     // Если изображения не было, добавляем его
                     const container = card.querySelector('.passport-container');
@@ -922,7 +923,7 @@
                         newContainer.className = 'passport-container';
                         newContainer.innerHTML = `
                             <img
-                                src="${API_URL}/api/care/passport-photo/${bookingId}?t=${new Date().getTime()}"
+                                data-access-src="${API_URL}/api/care/passport-photo/${bookingId}?t=${new Date().getTime()}"
                                 alt="Паспорт"
                                 class="passport-image"
                                 onerror="this.style.display='none';"

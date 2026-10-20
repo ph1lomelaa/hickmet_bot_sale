@@ -83,7 +83,7 @@ async def ensure_admin_request_inbox_table():
 
 # === ПОЛЬЗОВАТЕЛИ ===
 
-async def add_user(tg_id: int, full_name: str, username: str, role: str = "manager"):
+async def add_user(tg_id: int, full_name: str, username: str, role: str = "manager", manager_access_version=None):
     async with async_session() as session:
         # Проверяем, есть ли уже такой
         user = await session.scalar(select(User).where(User.telegram_id == tg_id))
@@ -91,9 +91,10 @@ async def add_user(tg_id: int, full_name: str, username: str, role: str = "manag
             # Если есть - обновляем имя (вдруг он решил перезайти с новым именем)
             user.full_name = full_name
             user.role = role
+            user.manager_access_version = manager_access_version
         else:
             # Если нет - создаем
-            session.add(User(telegram_id=tg_id, full_name=full_name, username=username, role=role))
+            session.add(User(telegram_id=tg_id, full_name=full_name, username=username, role=role, manager_access_version=manager_access_version))
         await session.commit()
 
 

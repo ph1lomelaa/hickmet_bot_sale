@@ -6,6 +6,7 @@
     <title>📋 Списки по пакетам - Hickmet Premium</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="config.js"></script>
+    <script src="access.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -796,7 +797,7 @@
                     </div>
                     ${passportImage ? `
                         <img
-                            src="${API_URL}/api/care/passport-photo/${booking.id}"
+                            data-access-src="${API_URL}/api/care/passport-photo/${booking.id}"
                             alt="Паспорт"
                             class="passport-image"
                             onerror="this.style.display='none'"
@@ -914,7 +915,7 @@
             event?.stopPropagation();
 
             try {
-                const directUrl = `${API_URL}/api/care/passport-pdf/${bookingId}?mode=compact&limit_mb=1&ngrok-skip-browser-warning=1`;
+                const directUrl = await window.BullAccess.mediaUrl(`${API_URL}/api/care/passport-pdf/${bookingId}?mode=compact&limit_mb=1&ngrok-skip-browser-warning=1`);
 
                 // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую
                 if (window.Telegram?.WebApp) {
@@ -935,7 +936,7 @@
             event?.stopPropagation();
 
             try {
-                const directUrl = `${API_URL}/api/care/passport-original/${bookingId}?ngrok-skip-browser-warning=1`;
+                const directUrl = await window.BullAccess.mediaUrl(`${API_URL}/api/care/passport-original/${bookingId}?ngrok-skip-browser-warning=1`);
 
                 // В Telegram WebApp скачивание через blob часто блокируется — открываем ссылку напрямую
                 if (window.Telegram?.WebApp) {

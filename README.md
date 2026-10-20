@@ -306,3 +306,7 @@ cd bull_project
 docker compose ps
 ```
 
+
+## Смена пароля менеджеров
+
+Порядок развёртывания, настройки и проверки сохранности истории: [ACCESS_ROLLOUT.md](ACCESS_ROLLOUT.md).

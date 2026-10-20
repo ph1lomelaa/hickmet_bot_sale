@@ -6,6 +6,7 @@
     <title>Админ Панель - Hickmet Premium</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="config.js"></script>
+    <script src="access.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -1305,7 +1306,7 @@
 
                         const createdDate = booking.created_at ? new Date(booking.created_at).toLocaleDateString('ru-RU') : '-';
                         const passportImage = booking.passport_image_path
-                            ? `<img src="${API_BASE}/api/care/passport-photo/${booking.id}?ngrok-skip-browser-warning=1" class="passport-image" alt="Паспорт" onerror="this.style.display='none'">`
+                            ? `<img data-access-src="${API_BASE}/api/care/passport-photo/${booking.id}?ngrok-skip-browser-warning=1" class="passport-image" alt="Паспорт" onerror="this.style.display='none'">`
                             : '';
 
                         html += `

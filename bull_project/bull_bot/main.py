@@ -16,6 +16,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def main():
+    from bull_project.bull_bot.core.access import validate_access_config
+    validate_access_config()
     logger.info("🚀 Запуск Bull Project Bot...")
     
     try:
@@ -30,6 +32,9 @@ async def main():
         default=DefaultBotProperties(parse_mode="HTML")
     )
     dp = Dispatcher()
+    from bull_project.bull_bot.core.access_middleware import AccessMiddleware
+    dp.message.outer_middleware(AccessMiddleware())
+    dp.callback_query.outer_middleware(AccessMiddleware())
     dp.include_router(booking_handlers.router)
     dp.include_router(history_handlers.router)
     dp.include_router(reschedule_handlers.router)
@@ -40,10 +45,16 @@ async def main():
 
     await bot.delete_webhook(drop_pending_updates=True)
     
+    from bull_project.bull_bot.core.access_notifications import notify_managers_about_access
+    notification_task = asyncio.create_task(notify_managers_about_access(bot))
     try:
         logger.info("Начинаем опрос Telegram (Polling)...")
         await dp.start_polling(bot)
     finally:
+        notification_task.cancel()
+        from contextlib import suppress
+        with suppress(asyncio.CancelledError):
+            await notification_task
         await bot.session.close()
 
 if __name__ == "__main__":

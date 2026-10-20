@@ -29,7 +29,21 @@ async_session = async_sessionmaker(engine, expire_on_commit=False)
 async def init_db():
     """Создает таблицы, если их нет. Вызывать при старте main.py и api_server.py"""
     async with engine.begin() as conn:
+        if DATABASE_URL.startswith("postgresql"):
+            await conn.execute(text("SELECT pg_advisory_xact_lock(84197321)"))
         await conn.run_sync(Base.metadata.create_all)
+
+        # Both API and worker may start concurrently; serialize the PostgreSQL migration.
+        if DATABASE_URL.startswith("postgresql"):
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_access_version VARCHAR(64)"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_access_notice_version VARCHAR(64)"))
+        else:
+            columns = await conn.execute(text("PRAGMA table_info(users)"))
+            column_names = [row[1] for row in columns]
+            if "manager_access_version" not in column_names:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN manager_access_version VARCHAR(64)"))
+            if "manager_access_notice_version" not in column_names:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN manager_access_notice_version VARCHAR(64)"))
 
         # Безопасная миграция: добавляем group_members если её нет
         if DATABASE_URL.startswith("postgresql"):
