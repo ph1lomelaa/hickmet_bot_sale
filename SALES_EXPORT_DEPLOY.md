@@ -21,18 +21,36 @@ CSV объединяет записи с колонкой «Тип записи�
    по себе эту страницу не обновляет. Файлы нужно положить рядом с существующими
    `config.js` и `access.js`.
 
-Обновлять нужно API, указанный в `BULL_API_URL` действующего `config.js` админки.
-В исходниках адрес по умолчанию — Koyeb. Если сайт обращается к Koyeb,
-пересборка контейнера на Hetzner не обновит API этого сайта.
+В действующем `book/config.js` указан API `https://hickmet.duckdns.org`.
+Он обслуживается Bull на сервере `65.21.188.181`.
+Корень репозитория на сервере: `/root/bull_project_repo`.
+Папка Docker Compose: `/root/bull_project_repo/bull_project`.
+Данные PostgreSQL находятся отдельно: `/data/postgres17`.
 
-Для Docker после загрузки файлов в корень репозитория:
+В открытой SSH-сессии сервера выполнить весь блок. Если `git pull` завершится
+ошибкой из-за локальных изменений, блок остановится и сохранит их:
 
 ```bash
-cd /root/bull_project_repo/bull_project
+set -e
+cd /root/bull_project_repo
+git pull --ff-only origin main
+cd bull_project
 docker compose up -d --build --no-deps api
+docker compose ps api
+curl --fail --retry 20 --retry-delay 3 --retry-connrefused http://127.0.0.1:8000/health
 ```
 
-Для Koyeb нужно развернуть обновлённый код API обычным способом этого сервиса.
+Команда пересоздаёт только API; PostgreSQL и его данные не пересоздаются.
+Если API не запустился, посмотреть причину:
+
+```bash
+docker compose logs --tail=100 api
+```
+
+В репозитории `ph1lomelaa/book` рабочая ветка называется `none`.
+В её корне публикуются `admin-panel.html` и `sales-export.js`.
+После их обновления нужно дождаться публикации GitHub Pages и заново
+открыть админку из Telegram.
 
 ## Проверка
 
