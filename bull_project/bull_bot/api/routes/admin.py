@@ -4,6 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, FileResponse
+from bull_project.bull_bot.api.routes.sales_export import router as sales_export_router
 
 from bull_project.bull_bot.api.utils import resolve_passport_path
 from bull_project.bull_bot.config.constants import ABS_UPLOADS_DIR
@@ -17,6 +18,7 @@ from bull_project.bull_bot.database.requests import (
 
 
 router = APIRouter()
+router.include_router(sales_export_router)
 
 
 @router.get("/api/admin/analytics")

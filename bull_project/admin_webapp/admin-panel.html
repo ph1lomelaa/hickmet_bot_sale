@@ -153,6 +153,61 @@
             flex-wrap: wrap;
         }
 
+        .header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            position: relative;
+            z-index: 10;
+        }
+
+        .header .tabs { flex: 1; min-width: 0; }
+        .export-actions { position: relative; flex-shrink: 0; margin-left: auto; }
+        .export-actions summary {
+            display: grid;
+            place-items: center;
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: var(--bg-secondary);
+            color: var(--accent-dark);
+            cursor: pointer;
+            list-style: none;
+        }
+        .export-actions summary::-webkit-details-marker { display: none; }
+        .export-actions summary:hover { background: var(--border-color); }
+        .export-actions summary:focus-visible,
+        .export-dropdown button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+        .export-dropdown {
+            position: absolute;
+            top: 52px;
+            right: 0;
+            width: min(300px, calc(100vw - 64px));
+            padding: 18px;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            background: var(--bg-card);
+            box-shadow: var(--shadow-lg);
+        }
+        .export-dropdown strong { display: block; margin-bottom: 6px; }
+        .export-dropdown p { color: var(--text-secondary); font-size: 13px; margin: 0 0 12px; }
+        .export-dropdown button {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            margin-top: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            text-align: left;
+            font: inherit;
+            cursor: pointer;
+        }
+        .export-dropdown button:hover { border-color: var(--accent-primary); }
+        .export-dropdown button:disabled { opacity: .55; cursor: wait; }
+        #sales-export-status { display: block; margin-top: 12px; font-size: 13px; overflow-wrap: anywhere; }
+
         .tab {
             padding: 14px 28px;
             background: var(--bg-secondary);
@@ -825,6 +880,20 @@
                 <button class="tab" onclick="showTab('managers')">Менеджеры</button>
                 <button class="tab" onclick="showTab('package-stats')">Статистика проданных пакетов</button>
             </div>
+            <details class="export-actions" id="sales-export-menu">
+                <summary aria-label="Действия с данными" title="Действия с данными">
+                    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+                        <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
+                    </svg>
+                </summary>
+                <div class="export-dropdown">
+                    <strong>Выгрузить все данные</strong>
+                    <p>Все продажи и OPEN DATE за всё время, включая отменённые и перенесённые.</p>
+                    <button type="button" data-sales-export="csv">Скачать CSV</button>
+                    <button type="button" data-sales-export="xlsx">Скачать Excel (.xlsx)</button>
+                    <span id="sales-export-status" role="status" aria-live="polite"></span>
+                </div>
+            </details>
         </div>
 
         <div class="quick-actions">
@@ -1428,5 +1497,6 @@
             setQuickPeriod('today');
         });
     </script>
+    <script src="sales-export.js?v=1"></script>
 </body>
 </html>
