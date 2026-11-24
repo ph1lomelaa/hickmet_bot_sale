@@ -16,6 +16,7 @@ async def api_packages(date: str, force: bool = False):
         results = await get_packages_by_date(date_part=date, force=force)
 
         print(f"✅ Результат поиска: found={results.get('found')}, data_count={len(results.get('data', []))}")
+        print(f"   Пакеты: {[item.get('n') for item in results.get('data', [])]}")
 
         return {
             "ok": True,

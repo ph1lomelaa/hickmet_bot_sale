@@ -278,7 +278,14 @@ async def api_bookings_submit(payload: BookingSubmitIn, request: Request):
     if not saved_rows:
         return JSONResponse(
             status_code=409,
-            content={"ok": False, "error": "Нет мест"}
+            content={
+                "ok": False,
+                "code": "no_seats",
+                "error": (
+                    f"Нет свободных мест: пакет «{package_name}», лист «{sheet_name}». "
+                    "Проверьте тип комнаты/пол или выберите другой пакет."
+                ),
+            }
         )
 
     # 7. Запись в БД

@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from gspread.exceptions import WorksheetNotFound
 from bull_project.bull_bot.config.settings import get_google_client
@@ -90,85 +91,116 @@ def get_packages_from_sheet(spreadsheet_id: str, sheet_name: str) -> dict:
     try:
         ss = client.open_by_key(spreadsheet_id)
         ws = _get_worksheet_by_title(ss, sheet_name)
-        data = ws.get('A1:F200')
-
-        import re as _re
-        _DATE_ONLY_RE = _re.compile(
-            r'^\d{1,2}[./]\d{1,2}(\s*[-–—]\s*\d{1,2}[./]\d{1,2})?\s*$'
-        )
-
-        packages = {}
-        package_keywords = [
-            "niyet", "hikma", "izi", "4u", "premium", "econom",
-            "стандарт", "эконом", "акцион", "comfort",
-            "ramadan", "рамадан", "ramazan", "ramad",
-            "park", "regis", "itikaf", "7d", "10d",
-            "millenium", "millennium",
-        ]
-
-        for idx, row in enumerate(data, start=1):
-            if not row:
-                continue
-
-            text_full = " ".join([str(x) for x in row]).lower()
-
-            if any(k in text_full for k in package_keywords):
-                col0 = str(row[0]).strip() if row and row[0] else ""
-                if col0:
-                    # Если колонка A — только дата/диапазон дат, добавляем тип из колонки B+
-                    if _DATE_ONLY_RE.match(col0):
-                        for col in row[1:]:
-                            extra = str(col).strip()
-                            if extra and not _DATE_ONLY_RE.match(extra):
-                                col0 = f"{col0} {extra}"
-                                break
-                    raw_name = col0
-                else:
-                    raw_name = str(row[1]).strip() if len(row) > 1 and row[1] else "Unknown"
-                clean_name = raw_name.replace("\n", " ")
-                if len(clean_name) > 3:
-                    packages[idx] = clean_name
-
-        # СПОСОБ 2 (ФОЛЛБЭК): Если ничего не нашли - ищем по заголовкам
-        if not packages:
-            import re
-            header_keywords = ["№", "avia", "visa", "type of room", "тип комнаты"]
-            # Паттерн даты: dd.mm или d.mm или dd.m
-            date_pattern = re.compile(r'^\d{1,2}\.\d{1,2}')
-
-            for idx, row in enumerate(data, start=1):
-                if not row:
-                    continue
-
-                text_full = " ".join([str(x) for x in row]).lower()
-
-                # Если нашли строку с заголовками
-                if any(k in text_full for k in header_keywords):
-                    # Ищем название пакета выше (1-3 строки)
-                    for offset in range(1, 4):
-                        if idx - offset < 1:
-                            break
-                        prev_row = data[idx - offset - 1]
-                        if prev_row and prev_row[0]:
-                            raw_name = str(prev_row[0]).strip()
-                            # Проверяем что название начинается с даты
-                            if date_pattern.match(raw_name):
-                                # Если только дата — добавляем тип из следующей колонки
-                                if _DATE_ONLY_RE.match(raw_name):
-                                    for col in prev_row[1:]:
-                                        extra = str(col).strip()
-                                        if extra and not _DATE_ONLY_RE.match(extra):
-                                            raw_name = f"{raw_name} {extra}"
-                                            break
-                                clean_name = raw_name.replace("\n", " ")
-                                packages[idx] = clean_name
-                                break
-
+        data = ws.get('A1:J400')
+        packages = extract_packages_from_rows(data)
+        logger.info(f"📦 Пакеты листа '{sheet_name}': {list(packages.values())}")
         return packages
 
     except Exception as e:
-        logger.error(f"❌ Ошибка поиска пакетов: {e}")
+        logger.error(f"❌ Ошибка поиска пакетов ({sheet_name}): {e}")
         return {}
+
+
+# ===== Распознавание пакетов в листе =====
+# Блок пакета в листе выглядит так:
+#   06.01-13.01 ADDRESS        <- название (начинается с диапазона дат)
+#   Manager:                   <- служебные строки
+#   Guide NIYET:
+#   № | TRAIN | ... | Type of room | Meal | Last Name | First Name | ...   <- шапка
+#   1 | ... данные ...
+# Название ищем ВЫШЕ шапки, а не по ключевым словам в любой строке:
+# иначе «Guide NIYET:» (содержит niyet) принимается за пакет.
+
+_PKG_DATE_START_RE = re.compile(
+    r'^\s*\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?\s*[-–—]\s*\d{1,2}[./]\d{1,2}'
+)
+_PKG_DATE_ONLY_RE = re.compile(
+    r'^\s*\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?(\s*[-–—]\s*\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)?\s*$'
+)
+_PKG_LABEL_RE = re.compile(
+    r'^\s*(manager|менеджер|guide|гид|№|итого|total|comment|коммент|примечан)',
+    re.I,
+)
+_PKG_ROOM_HEADERS = ("type of room", "тип комнаты", "тип номера")
+_PKG_NAME_HEADERS = ("last name", "lastname", "фамилия")
+_PKG_FALLBACK_KEYWORDS = (
+    "niyet", "hikma", "izi", "4u", "premium", "econom",
+    "стандарт", "эконом", "акцион", "comfort",
+    "ramadan", "рамадан", "ramazan",
+    "itikaf", "7d", "10d", "millenium", "millennium",
+)
+_PKG_TITLE_LOOKUP = 6  # сколько строк выше шапки ищем название
+
+
+def _cell(row, i) -> str:
+    if not row or i >= len(row) or row[i] is None:
+        return ""
+    return str(row[i]).replace("\n", " ").replace("\r", " ").strip()
+
+
+def _first_cell(row) -> str:
+    for i in range(len(row or [])):
+        val = _cell(row, i)
+        if val:
+            return val
+    return ""
+
+
+def _is_table_header(row) -> bool:
+    cells = [_cell(row, i).lower() for i in range(len(row or []))]
+    has_room = any(any(k in c for k in _PKG_ROOM_HEADERS) for c in cells)
+    has_name = any(any(k in c for k in _PKG_NAME_HEADERS) for c in cells)
+    return has_room and has_name
+
+
+def _package_title_from_row(row) -> str:
+    """Название из строки-заголовка; '' если строка не похожа на название пакета."""
+    title = _first_cell(row)
+    if not title or _PKG_LABEL_RE.match(title) or not _PKG_DATE_START_RE.match(title):
+        return ""
+    # «06.01-13.01» в A, а тип («ADDRESS») — в следующей ячейке
+    if _PKG_DATE_ONLY_RE.match(title):
+        start = next(i for i in range(len(row)) if _cell(row, i)) + 1
+        for i in range(start, len(row)):
+            extra = _cell(row, i)
+            if extra and not _PKG_DATE_ONLY_RE.match(extra) and not _PKG_LABEL_RE.match(extra):
+                title = f"{title} {extra}"
+                break
+    return re.sub(r"\s+", " ", title).strip()
+
+
+def extract_packages_from_rows(rows) -> dict:
+    """
+    Возвращает {номер_строки (1-based): название пакета}.
+    1) По структуре: шапка таблицы → ближайшая строка выше, начинающаяся с дат.
+    2) Фолбэк (если шапок нет): ячейка A с датой и ключевым словом пакета.
+    """
+    rows = rows or []
+    packages = {}
+
+    header_idxs = [i for i, row in enumerate(rows) if _is_table_header(row)]
+    prev_header = -1
+    for h in header_idxs:
+        lower = max(prev_header + 1, h - _PKG_TITLE_LOOKUP)
+        for r in range(h - 1, lower - 1, -1):
+            title = _package_title_from_row(rows[r])
+            if title:
+                packages[r + 1] = title
+                break
+        prev_header = h
+
+    if not packages:
+        for i, row in enumerate(rows):
+            title = _package_title_from_row(row)
+            if title and any(k in title.lower() for k in _PKG_FALLBACK_KEYWORDS):
+                packages[i + 1] = title
+
+    names = list(packages.values())
+    dups = {n for n in names if names.count(n) > 1}
+    if dups:
+        logger.warning(f"⚠️ Одинаковые названия пакетов в листе: {sorted(dups)}")
+
+    return packages
 
 def get_sheet_data(sheet_id: str, sheet_name: str):
     """

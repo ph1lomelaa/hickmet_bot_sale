@@ -15,7 +15,8 @@ DATE_TTL = 60
 
 _DATE_RANGE_RX = re.compile(r"^\s*\d{1,2}[./]\d{1,2}\s*[-–—]\s*\d{1,2}[./]\d{1,2}\s*")
 _DATE_RX = re.compile(r"^\s*\d{1,2}[./]\d{1,2}\s*")
-_BLOCKED_PREFIXES = ("ALA-JED", "BUS", "JED", "ALA", "MAD", "NQZ")
+_BLOCKED_PREFIXES = ("ALA-JED", "BUS", "JED", "ALA", "MAD", "NQZ",
+                     "GUIDE", "MANAGER", "ГИД", "МЕНЕДЖЕР")
 
 def _normalize_pkg_title(name: str) -> str:
     base = (name or "").split("[", 1)[0].strip()
@@ -40,6 +41,29 @@ def _norm_ddmm(s: str) -> str:
     mm = parts[1].zfill(2)[:2]
     return f"{dd}.{mm}"
 
+_MONTHS = {
+    "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4, "MAY": 5, "JUNE": 6,
+    "JULY": 7, "AUGUST": 8, "SEPTEMBER": 9, "OCTOBER": 10, "NOVEMBER": 11, "DECEMBER": 12,
+    "ЯНВАРЬ": 1, "ФЕВРАЛЬ": 2, "МАРТ": 3, "АПРЕЛЬ": 4, "МАЙ": 5, "ИЮНЬ": 6,
+    "ИЮЛЬ": 7, "АВГУСТ": 8, "СЕНТЯБРЬ": 9, "ОКТЯБРЬ": 10, "НОЯБРЬ": 11, "ДЕКАБРЬ": 12,
+}
+_YEAR_RX = re.compile(r"(20\d{2})")
+
+
+def _table_is_past(t_name: str, now: datetime) -> bool:
+    """
+    True, если таблица целиком в прошлом: 'JANUARY 2026' при текущем ноябре 2026.
+    Берём последний месяц из названия ('JUNE-JULY-AUGUST 2026/27' → август)
+    и первый 4-значный год. Без месяца в названии (RAMADAN-2026) — не отсекаем.
+    """
+    upper = (t_name or "").upper()
+    year_m = _YEAR_RX.search(upper)
+    months = [num for name, num in _MONTHS.items() if re.search(rf"\b{name}\b", upper)]
+    if not year_m or not months:
+        return False
+    return (int(year_m.group(1)), max(months)) < (now.year, now.month)
+
+
 async def _get_target_tables_current_next_year(force: bool = False) -> Dict[str, str]:
     now = datetime.now()
     years = [str(now.year), str(now.year + 1)]
@@ -47,7 +71,7 @@ async def _get_target_tables_current_next_year(force: bool = False) -> Dict[str,
 
     target = {}
     for t_name, t_id in all_tables.items():
-        if any(y in t_name for y in years):
+        if any(y in t_name for y in years) and not _table_is_past(t_name, now):
             target[t_name] = t_id
 
     return target
@@ -104,7 +128,8 @@ async def _collect_raw_packages(
             for sheet_name in sheet_names:
                 clean = (sheet_name or "").strip()
                 for variant in date_variants:
-                    if clean.startswith(variant):
+                    # '06.1' не должно совпадать с '06.12-…' — после даты не цифра
+                    if re.match(rf"{re.escape(variant)}(?!\d)", clean):
                         matched.append(sheet_name)
                         print(f"✅ [DEBUG] Найден лист: '{sheet_name}' (совпадает с '{variant}')")
                         break

@@ -7,26 +7,39 @@ from .setup import async_session, engine
 from bull_project.bull_bot.core.passport_storage import normalize_passport_path_for_storage
 
  
+async def _bookings_has_column(column: str) -> bool:
+    """Есть ли колонка в bookings (SQLite и Postgres). При ошибке проверки — False."""
+    from sqlalchemy import inspect as sa_inspect
+    try:
+        async with engine.connect() as conn:
+            cols = await conn.run_sync(
+                lambda sync_conn: [c["name"] for c in sa_inspect(sync_conn).get_columns("bookings")]
+            )
+        return column in cols
+    except Exception:
+        return False
+
+
 async def ensure_group_members_column():
     """
     Мягко добавляем колонку group_members, если ее еще нет (SQLite/Postgres).
-    Ошибки игнорируем, чтобы не падать при повторном вызове.
     """
+    if await _bookings_has_column("group_members"):
+        return
     try:
         async with engine.begin() as conn:
             await conn.execute(text("ALTER TABLE bookings ADD COLUMN group_members TEXT"))
             print("✅ Колонка group_members добавлена")
     except Exception as e:
-        # Уже есть или нет прав — тихо игнорируем
-        print(f"ℹ️ Колонка group_members уже существует или нет прав: {type(e).__name__}")
-        pass
+        print(f"⚠️ Не удалось добавить колонку group_members: {type(e).__name__}: {e}")
 
 
 async def ensure_updated_at_column():
     """
     Мягко добавляем колонку updated_at, если ее еще нет (SQLite/Postgres).
-    Ошибки игнорируем, чтобы не падать при повторном вызове.
     """
+    if await _bookings_has_column("updated_at"):
+        return
     try:
         async with engine.begin() as conn:
             # Добавляем колонку
@@ -37,9 +50,7 @@ async def ensure_updated_at_column():
             await conn.execute(text("UPDATE bookings SET updated_at = created_at WHERE updated_at IS NULL"))
             print("✅ Колонка updated_at инициализирована из created_at")
     except Exception as e:
-        # Уже есть или нет прав — тихо игнорируем
-        print(f"ℹ️ Колонка updated_at уже существует или нет прав: {type(e).__name__}")
-        pass
+        print(f"⚠️ Не удалось добавить колонку updated_at: {type(e).__name__}: {e}")
 
 async def check_group_members_column_exists():
     """Проверяет, существует ли колонка group_members в таблице bookings"""

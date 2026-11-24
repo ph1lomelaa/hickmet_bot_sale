@@ -31,6 +31,10 @@ app.include_router(access_router)
 # ──────────────────────────────────────────────────────────────────────────
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))     # окно, сек
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "240"))          # запросов/окно с одного IP
+# Фото паспортов на странице care грузятся пачкой (токен + фото на каждого паломника),
+# а весь офис часто за одним IP — для них отдельный, более высокий лимит.
+RATE_LIMIT_MEDIA_MAX = int(os.getenv("RATE_LIMIT_MEDIA_MAX", "1500"))
+_MEDIA_PREFIXES = ("/api/care/passport-photo/", "/api/access/media-token")
 SCANNER_BLOCK_SECONDS = int(os.getenv("SCANNER_BLOCK_SECONDS", "900"))  # бан скана, сек
 
 # Маркеры явного сканирования (path traversal / попытки читать секреты).
@@ -91,11 +95,14 @@ async def security_guard(request: Request, call_next):
         _blocked_ips[ip] = now + SCANNER_BLOCK_SECONDS
         return PlainTextResponse("Forbidden", status_code=403)
 
-    # 3) rate limiting по IP (скользящее окно)
-    dq = _rate_hits[ip]
+    # 3) rate limiting по IP (скользящее окно); медиа считаются отдельно
+    is_media = request.method == "GET" and path.startswith(_MEDIA_PREFIXES)
+    key = f"{ip}|media" if is_media else ip
+    limit = RATE_LIMIT_MEDIA_MAX if is_media else RATE_LIMIT_MAX
+    dq = _rate_hits[key]
     while dq and now - dq[0] > RATE_LIMIT_WINDOW:
         dq.popleft()
-    if len(dq) >= RATE_LIMIT_MAX:
+    if len(dq) >= limit:
         return PlainTextResponse("Too Many Requests", status_code=429)
     dq.append(now)
 
